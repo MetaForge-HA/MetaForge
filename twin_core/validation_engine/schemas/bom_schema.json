@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BOM Artifact Metadata Schema",
+  "description": "Schema for Bill of Materials artifact metadata",
+  "type": "object",
+  "required": ["total_cost", "components"],
+  "properties": {
+    "total_cost": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Total cost of all components in USD"
+    },
+    "components": {
+      "type": "array",
+      "description": "List of component references",
+      "items": {
+        "type": "object",
+        "required": ["reference", "part_number", "quantity"],
+        "properties": {
+          "reference": {
+            "type": "string",
+            "description": "Reference designator (e.g., R1, U3)"
+          },
+          "part_number": {
+            "type": "string",
+            "description": "Manufacturer part number"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unit_cost": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "currency": {
+      "type": "string",
+      "default": "USD",
+      "description": "Currency for costs"
+    },
+    "component_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of unique components"
+    }
+  }
+}

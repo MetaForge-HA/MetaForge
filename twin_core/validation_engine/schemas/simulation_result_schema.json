@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Simulation Result Artifact Metadata Schema",
+  "description": "Schema for simulation result artifact metadata",
+  "type": "object",
+  "required": ["simulation_type", "status"],
+  "properties": {
+    "simulation_type": {
+      "type": "string",
+      "enum": ["fea", "cfd", "thermal", "electromagnetic", "spice", "modal"],
+      "description": "Type of simulation performed"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "warning", "error"],
+      "description": "Simulation result status"
+    },
+    "max_stress_mpa": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum stress in megapascals (FEA)"
+    },
+    "safety_factor": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Safety factor calculated"
+    },
+    "max_displacement_mm": {
+      "type": "number",
+      "description": "Maximum displacement in millimeters (FEA)"
+    },
+    "max_temperature_c": {
+      "type": "number",
+      "description": "Maximum temperature in Celsius (thermal)"
+    },
+    "solver": {
+      "type": "string",
+      "description": "Solver used (e.g., CalculiX, OpenFOAM)"
+    },
+    "mesh_elements": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of mesh elements"
+    },
+    "convergence": {
+      "type": "boolean",
+      "description": "Whether the solution converged"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "List of warnings from simulation"
+    },
+    "errors": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "List of errors from simulation"
+    }
+  }
+}

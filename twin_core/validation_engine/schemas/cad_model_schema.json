@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CAD Model Artifact Metadata Schema",
+  "description": "Schema for CAD model artifact metadata",
+  "type": "object",
+  "required": ["units"],
+  "properties": {
+    "units": {
+      "type": "string",
+      "enum": ["mm", "cm", "m", "in", "ft"],
+      "description": "Units used in the CAD model"
+    },
+    "mass_kg": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Mass in kilograms"
+    },
+    "material": {
+      "type": "string",
+      "description": "Primary material (e.g., aluminum_6061, abs_plastic)"
+    },
+    "volume_mm3": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Volume in cubic millimeters"
+    },
+    "bounding_box": {
+      "type": "object",
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      },
+      "required": ["x", "y", "z"],
+      "description": "Bounding box dimensions"
+    },
+    "cad_software": {
+      "type": "string",
+      "description": "CAD software used (e.g., FreeCAD, SolidWorks)"
+    },
+    "version": {
+      "type": "string",
+      "description": "Model version or revision"
+    }
+  }
+}
