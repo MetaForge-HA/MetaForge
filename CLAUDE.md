@@ -52,24 +52,38 @@ All project tracking lives in **Linear** under the **MetaForge** team:
 
 | Component | Technology |
 |-----------|-----------|
-| Language | TypeScript (Node.js >= 18) |
-| CLI | Commander.js, Inquirer, Chalk |
-| Gateway | Express.js / Fastify |
-| Agent Runtime | Custom orchestration layer (no agent framework) |
-| LLM Providers | `openai` + `@anthropic-ai/sdk` via unified abstraction |
-| Validation | Zod |
-| Workflow Engine | Temporal |
+| Primary Language | Python 3.11+ (Gateway, Agents, Twin, Skills, MCP) |
+| CLI / Dashboard | Node.js / TypeScript (CLI only) |
+| CLI Libraries | Commander.js, Inquirer, Chalk |
+| Gateway | FastAPI + Uvicorn |
+| Agent Framework | PydanticAI + Temporal (ADR-001) |
+| LLM Providers | `openai` + `anthropic` SDKs via unified abstraction |
+| Validation | Pydantic v2 |
+| Workflow Engine | Temporal (Python SDK) |
 | Graph Database | Neo4j |
-| Event Bus | Kafka / NATS |
+| Event Bus | Apache Kafka |
+| Observability | OpenTelemetry + structlog + Prometheus + Grafana |
+
+## Dual-Mode Operation
+
+MetaForge supports two operational modes:
+
+- **Assistant Mode** (default): Human edits design files directly; MetaForge validates post-edit and flags issues. Read-only by default — explicit approval required for writes.
+- **Autonomous Mode**: AI agents drive the design loop (propose → validate → refine). Human reviews and approves at gate checkpoints.
 
 ## Build & Development Commands
 
 ```bash
-npm install          # Install dependencies
-npm run build        # Compile TypeScript (tsc)
-npm test             # Run tests (Jest)
-npm run dev          # Dev mode (ts-node)
-npm run clean        # Remove dist/
+# Python (platform core)
+pip install -e ".[dev]"   # Install in dev mode
+pytest                    # Run tests
+ruff check .              # Lint
+mypy .                    # Type check
+
+# Node.js (CLI only)
+cd cli && npm install     # Install CLI dependencies
+npm run build             # Compile TypeScript (tsc)
+npm run dev               # Dev mode (ts-node)
 ```
 
 CLI binary is `forge` (or `metaforge`), entry point at `cli/index.ts`.
@@ -107,7 +121,7 @@ MetaForge/
 ├── skill_registry/             # Skill management layer
 │   ├── registry.py             # Skill catalog with auto-discovery
 │   ├── loader.py               # Dynamic loading from definition files
-│   ├── schema_validator.py     # Input/output schema validation (Zod)
+│   ├── schema_validator.py     # Input/output schema validation (Pydantic)
 │   ├── skill_base.py           # Abstract base class for all skills
 │   └── mcp_bridge.py           # Skill tool calls → MCP protocol
 │
@@ -157,7 +171,7 @@ MetaForge/
 └── docs/                       # Project-level documentation
 ```
 
-**Note**: The reference structure in MetaForge-Planner uses Python file extensions (`.py`). The actual implementation uses TypeScript (`.ts`). Translate accordingly when creating files.
+**Note**: The platform core is implemented in Python (`.py`). Only the CLI layer (`cli/`) uses TypeScript (`.ts`).
 
 ## User Project Structure (What MetaForge Manages)
 
@@ -227,6 +241,6 @@ Key architectural rules:
 1. Never claim Phase 1 has KiCad schematic generation (that's Phase 2 write capability)
 2. Phase 1 is 6-7 disciplines, not 12 — 1:1 agent-to-discipline ratio
 3. Phase 1 timeline is "6 months total" not "3-4 months"
-4. MetaForge uses a custom orchestration layer, NOT a third-party agent framework
+4. MetaForge uses PydanticAI + Temporal for agent orchestration (ADR-001)
 5. All tool adapters run in Docker containers
 6. The first end-to-end vertical is the Mechanical Agent (MET-8): CAD model -> FEA -> Digital Twin update
