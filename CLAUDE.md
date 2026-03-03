@@ -88,6 +88,17 @@ npm run dev               # Dev mode (ts-node)
 
 CLI binary is `forge` (or `metaforge`), entry point at `cli/index.ts`.
 
+## Git Workflow
+
+**Never commit directly to `main`.** All changes follow this workflow:
+
+1. **Branch** — Create a feature branch from `main` (e.g., `feat/met-15-twin-api`)
+2. **Implement** — Commit changes to the feature branch
+3. **Test branch** — Run `pytest`, `ruff check .`, `mypy .` on the branch
+4. **Pull request** — Open a PR to `main` with a summary of changes
+5. **Merge** — Merge the PR into `main` (squash or merge commit)
+6. **Test main** — Verify `main` passes all checks after merge
+
 ## Platform Source Repository Structure (Modular Monorepo)
 
 This repo follows the canonical layout defined in `FidelOdok/MetaForge-Planner` at `docs/architecture/repository-structure.md`. Each top-level directory maps to an architectural layer:

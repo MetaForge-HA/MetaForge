@@ -1,16 +1,19 @@
 # Digital Twin Graph Schema
 
-> **Version**: 0.1 (Phase 0 — Spec & Design)
-> **Status**: Draft
-> **Last Updated**: 2026-03-02
+> **Version**: 0.2 (Phase 1 — Implementation)
+> **Status**: Approved — matches implementation
+> **Last Updated**: 2026-03-03
 > **Depends on**: [`architecture.md`](architecture.md)
 > **Referenced by**: [`skill_spec.md`](skill_spec.md), [`mcp_spec.md`](mcp_spec.md), [`roadmap.md`](roadmap.md)
+> **Implementation**: `twin_core/` (models, graph engine, versioning, constraint engine)
 
 ## 1. Overview
 
-The Digital Twin is the **single source of design truth** in MetaForge. It is a versioned, directed property graph stored in Neo4j that captures every artifact, constraint, relationship, and version in a hardware design.
+The Digital Twin is the **single source of design truth** in MetaForge. It is a versioned, directed property graph that captures every artifact, constraint, relationship, and version in a hardware design.
 
 All agents read from and propose changes to the Twin. No agent maintains its own persistent state — the Twin is the canonical record of what exists, what constrains it, and how it evolved.
+
+> **v0.1 note**: The current implementation uses an in-memory graph engine (`InMemoryGraphEngine`). Neo4j integration is planned for v0.2+.
 
 ### Design Principles
 
@@ -18,6 +21,84 @@ All agents read from and propose changes to the Twin. No agent maintains its own
 2. **Version-everything**: Every mutation creates a version record. The graph supports branching and merging like Git.
 3. **Constraint-first**: Constraints are first-class nodes, not annotations. They are evaluated automatically on every proposed change.
 4. **Domain-agnostic core**: The Twin schema is generic. Domain-specific semantics live in artifact metadata and constraint expressions.
+
+---
+
+### 1.1 Base Types
+
+All graph nodes inherit from `NodeBase`, which provides a UUID identifier and a `NodeType` discriminator. All edges inherit from `EdgeBase` with a typed `EdgeType` field.
+
+#### NodeType Enum
+
+```python
+from enum import StrEnum
+
+class NodeType(StrEnum):
+    """Discriminator for graph node types."""
+
+    ARTIFACT = "artifact"
+    CONSTRAINT = "constraint"
+    VERSION = "version"
+    COMPONENT = "component"
+    AGENT = "agent"
+```
+
+*Source: `twin_core/models/enums.py`*
+
+#### NodeBase
+
+```python
+from uuid import UUID, uuid4
+from pydantic import BaseModel, Field
+from twin_core.models.enums import NodeType
+
+class NodeBase(BaseModel):
+    """Abstract base for all graph nodes."""
+
+    id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType
+```
+
+All node models (`Artifact`, `Constraint`, `Version`, `Component`, `AgentNode`) inherit from `NodeBase` and set `node_type` to a default value matching their type.
+
+*Source: `twin_core/models/base.py`*
+
+#### EdgeType Enum
+
+```python
+class EdgeType(StrEnum):
+    """Types of directed relationships between graph nodes."""
+
+    DEPENDS_ON = "depends_on"
+    IMPLEMENTS = "implements"
+    VALIDATES = "validates"
+    CONTAINS = "contains"
+    VERSIONED_BY = "versioned_by"
+    CONSTRAINED_BY = "constrained_by"
+    PRODUCED_BY = "produced_by"
+    USES_COMPONENT = "uses_component"
+    PARENT_OF = "parent_of"
+    CONFLICTS_WITH = "conflicts_with"
+```
+
+*Source: `twin_core/models/enums.py`*
+
+#### EdgeBase
+
+```python
+from datetime import UTC, datetime
+
+class EdgeBase(BaseModel):
+    """A directed relationship between two graph nodes."""
+
+    source_id: UUID
+    target_id: UUID
+    edge_type: EdgeType
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict = Field(default_factory=dict)
+```
+
+*Source: `twin_core/models/base.py`*
 
 ---
 
@@ -29,7 +110,8 @@ An Artifact represents any design output: a schematic, BOM, PCB layout, firmware
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `str (UUID)` | Yes | Unique identifier |
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.ARTIFACT` |
 | `name` | `str` | Yes | Human-readable name (e.g., `"main_schematic"`) |
 | `type` | `ArtifactType` | Yes | Enum: see below |
 | `domain` | `str` | Yes | Engineering domain (e.g., `"mechanical"`, `"electronics"`) |
@@ -67,12 +149,15 @@ class ArtifactType(StrEnum):
 **Pydantic Model**:
 
 ```python
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field
+from pydantic import Field
+from twin_core.models.base import NodeBase
+from twin_core.models.enums import ArtifactType, NodeType
 
-class Artifact(BaseModel):
+class Artifact(NodeBase):
     id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.ARTIFACT
     name: str
     type: ArtifactType
     domain: str
@@ -80,10 +165,12 @@ class Artifact(BaseModel):
     content_hash: str
     format: str
     metadata: dict = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by: str
 ```
+
+*Source: `twin_core/models/artifact.py`*
 
 ### 2.2 Constraint
 
@@ -91,14 +178,15 @@ A Constraint is a rule that must be satisfied across one or more artifacts. Cons
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `str (UUID)` | Yes | Unique identifier |
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.CONSTRAINT` |
 | `name` | `str` | Yes | Human-readable name (e.g., `"max_voltage_3v3"`) |
 | `expression` | `str` | Yes | Constraint expression (see Constraint Language below) |
 | `severity` | `ConstraintSeverity` | Yes | `ERROR`, `WARNING`, or `INFO` |
 | `status` | `ConstraintStatus` | Yes | Current evaluation status |
 | `domain` | `str` | Yes | Primary domain (e.g., `"electronics"`) |
 | `cross_domain` | `bool` | No | Whether constraint spans multiple domains |
-| `source` | `str` | Yes | Origin: `"user"`, `"agent"`, or `"system"` |
+| `source` | `str` | Yes | Free-form string describing origin (e.g., `"user"`, `"agent"`, `"system"`) |
 | `message` | `str` | No | Human-readable description of the constraint |
 | `last_evaluated` | `datetime` | No | When the constraint was last checked |
 | `metadata` | `dict` | No | Additional context |
@@ -116,8 +204,9 @@ class ConstraintStatus(StrEnum):
     UNEVALUATED = "unevaluated"
     SKIPPED = "skipped"   # Constraint not applicable to current state
 
-class Constraint(BaseModel):
+class Constraint(NodeBase):
     id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.CONSTRAINT
     name: str
     expression: str
     severity: ConstraintSeverity
@@ -130,34 +219,40 @@ class Constraint(BaseModel):
     metadata: dict = Field(default_factory=dict)
 ```
 
+*Source: `twin_core/models/constraint.py`*
+
 ### 2.3 Version
 
 A Version represents a point-in-time snapshot of the artifact graph. Versions form a DAG (directed acyclic graph) that supports branching and merging.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `str (UUID)` | Yes | Unique identifier |
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.VERSION` |
 | `branch_name` | `str` | Yes | Branch this version belongs to (e.g., `"main"`, `"agent/mechanical/stress-fix"`) |
-| `parent_id` | `str (UUID)` | No | Parent version (null for initial version) |
-| `merge_parent_id` | `str (UUID)` | No | Second parent (for merge commits) |
+| `parent_id` | `UUID` | No | Parent version (null for initial version) |
+| `merge_parent_id` | `UUID` | No | Second parent (for merge commits) |
 | `commit_message` | `str` | Yes | Description of changes |
-| `snapshot_hash` | `str` | Yes | Hash of the complete graph state at this version |
+| `snapshot_hash` | `str` | Yes | SHA-256 hash of the complete graph state at this version |
 | `author` | `str` | Yes | Agent ID, `"human"`, or `"system"` |
 | `created_at` | `datetime` | Yes | Version creation timestamp |
 | `artifact_ids` | `list[UUID]` | Yes | Artifacts modified in this version |
 
 ```python
-class Version(BaseModel):
+class Version(NodeBase):
     id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.VERSION
     branch_name: str
     parent_id: UUID | None = None
     merge_parent_id: UUID | None = None
     commit_message: str
     snapshot_hash: str
     author: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     artifact_ids: list[UUID] = Field(default_factory=list)
 ```
+
+*Source: `twin_core/models/version.py`*
 
 ### 2.4 Component
 
@@ -165,7 +260,8 @@ A Component represents a physical part used in the design (IC, resistor, connect
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `str (UUID)` | Yes | Unique identifier |
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.COMPONENT` |
 | `part_number` | `str` | Yes | Manufacturer part number |
 | `manufacturer` | `str` | Yes | Manufacturer name |
 | `description` | `str` | No | Part description |
@@ -186,8 +282,9 @@ class ComponentLifecycle(StrEnum):
     OBSOLETE = "obsolete"
     UNKNOWN = "unknown"
 
-class Component(BaseModel):
+class Component(NodeBase):
     id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.COMPONENT
     part_number: str
     manufacturer: str
     description: str = ""
@@ -201,32 +298,38 @@ class Component(BaseModel):
     quantity: int = 1
 ```
 
+*Source: `twin_core/models/component.py`*
+
 ### 2.5 Agent
 
 An Agent node records which agent produced or modified artifacts. It connects the provenance chain from human intent through agent execution to artifact output.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `id` | `str (UUID)` | Yes | Unique identifier |
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.AGENT` |
 | `agent_type` | `str` | Yes | Agent discipline (e.g., `"mechanical"`, `"electronics"`) |
 | `domain` | `str` | Yes | Engineering domain this agent covers |
-| `session_id` | `str (UUID)` | Yes | Current execution session |
+| `session_id` | `UUID` | Yes | Current execution session |
 | `skills_used` | `list[str]` | No | Skill IDs invoked during this session |
 | `started_at` | `datetime` | Yes | Session start time |
 | `completed_at` | `datetime` | No | Session completion time |
 | `status` | `str` | Yes | `"running"`, `"completed"`, `"failed"` |
 
 ```python
-class AgentNode(BaseModel):
+class AgentNode(NodeBase):
     id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.AGENT
     agent_type: str
     domain: str
     session_id: UUID
     skills_used: list[str] = Field(default_factory=list)
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     status: str = "running"
 ```
+
+*Source: `twin_core/models/agent.py`*
 
 ---
 
@@ -234,39 +337,176 @@ class AgentNode(BaseModel):
 
 Edges are directed relationships between nodes. Each edge type has defined source and target node types.
 
-| Edge Type | Source → Target | Description |
-|-----------|----------------|-------------|
-| `DEPENDS_ON` | Artifact → Artifact | Artifact A requires Artifact B (e.g., PCB depends on schematic) |
-| `IMPLEMENTS` | Artifact → Artifact | Artifact A implements the spec defined in Artifact B |
-| `VALIDATES` | Artifact → Artifact | Artifact A (test result) validates Artifact B (design) |
-| `CONTAINS` | Artifact → Artifact | Artifact A contains Artifact B (hierarchical composition) |
-| `VERSIONED_BY` | Artifact → Version | Links an artifact to the version that last modified it |
-| `CONSTRAINED_BY` | Artifact → Constraint | Constraint applies to this artifact |
-| `PRODUCED_BY` | Artifact → Agent | Artifact was produced or modified by this agent |
-| `USES_COMPONENT` | Artifact → Component | Artifact references this component (e.g., BOM uses resistor) |
-| `PARENT_OF` | Version → Version | Version lineage (parent → child) |
-| `CONFLICTS_WITH` | Constraint → Constraint | Two constraints that cannot both be satisfied |
+| Edge Type | Source -> Target | Description |
+|-----------|-----------------|-------------|
+| `DEPENDS_ON` | Artifact -> Artifact | Artifact A requires Artifact B (e.g., PCB depends on schematic) |
+| `IMPLEMENTS` | Artifact -> Artifact | Artifact A implements the spec defined in Artifact B |
+| `VALIDATES` | Artifact -> Artifact | Artifact A (test result) validates Artifact B (design) |
+| `CONTAINS` | Artifact -> Artifact | Artifact A contains Artifact B (hierarchical composition) |
+| `VERSIONED_BY` | Artifact -> Version | Links an artifact to the version that last modified it |
+| `CONSTRAINED_BY` | Artifact -> Constraint | Constraint applies to this artifact |
+| `PRODUCED_BY` | Artifact -> Agent | Artifact was produced or modified by this agent |
+| `USES_COMPONENT` | Artifact -> Component | Artifact references this component (e.g., BOM uses resistor) |
+| `PARENT_OF` | Version -> Version | Version lineage (parent -> child) |
+| `CONFLICTS_WITH` | Constraint -> Constraint | Two constraints that cannot both be satisfied |
 
-### Edge Properties
+### Typed Edge Models
 
-All edges carry a minimal set of properties:
+Edges with domain-specific properties are modeled as typed subclasses of `EdgeBase`:
 
 ```python
-class EdgeBase(BaseModel):
-    source_id: UUID
-    target_id: UUID
-    edge_type: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict = Field(default_factory=dict)
+class DependsOnEdge(EdgeBase):
+    """Artifact A requires Artifact B."""
+
+    edge_type: EdgeType = EdgeType.DEPENDS_ON
+    dependency_type: str = "hard"  # "hard" or "soft"
+    description: str = ""
+
+
+class UsesComponentEdge(EdgeBase):
+    """Artifact references a physical component."""
+
+    edge_type: EdgeType = EdgeType.USES_COMPONENT
+    reference_designator: str = ""  # e.g. "R1", "U3"
+    quantity: int = 1
+
+
+class ConstrainedByEdge(EdgeBase):
+    """Constraint applies to an artifact."""
+
+    edge_type: EdgeType = EdgeType.CONSTRAINED_BY
+    scope: str = "local"  # "local" or "global"
+    priority: int = 0
 ```
 
-Some edge types have additional properties:
+*Source: `twin_core/models/relationship.py`*
 
-| Edge Type | Additional Properties |
-|-----------|----------------------|
-| `DEPENDS_ON` | `dependency_type: str` (`"hard"` or `"soft"`), `description: str` |
-| `USES_COMPONENT` | `reference_designator: str` (e.g., `"R1"`, `"U3"`), `quantity: int` |
-| `CONSTRAINED_BY` | `scope: str` (`"local"` or `"global"`), `priority: int` |
+### SubGraph Response
+
+```python
+class SubGraph(BaseModel):
+    """A traversal result containing a subset of the graph."""
+
+    nodes: list[NodeBase] = Field(default_factory=list)
+    edges: list[EdgeBase] = Field(default_factory=list)
+    root_id: UUID
+    depth: int
+```
+
+*Source: `twin_core/models/relationship.py`*
+
+---
+
+### 3.1 Graph Engine Interface
+
+The `GraphEngine` ABC defines the core contract for all graph storage backends. It provides node CRUD, edge management, and traversal queries.
+
+> **v0.1**: `InMemoryGraphEngine` (dict-based, for development and testing).
+> **Planned**: `Neo4jGraphEngine` for production persistence.
+
+```python
+from abc import ABC, abstractmethod
+from uuid import UUID
+from twin_core.models.base import EdgeBase, NodeBase
+from twin_core.models.enums import EdgeType, NodeType
+from twin_core.models.relationship import SubGraph
+
+
+class GraphEngine(ABC):
+    """Abstract interface for Digital Twin graph storage and retrieval.
+
+    All backends (in-memory, Neo4j) implement this contract.
+    """
+
+    # --- Node operations ---
+
+    @abstractmethod
+    async def add_node(self, node: NodeBase) -> NodeBase:
+        """Add a node to the graph. Raises ValueError if ID already exists."""
+        ...
+
+    @abstractmethod
+    async def get_node(self, node_id: UUID) -> NodeBase | None:
+        """Retrieve a node by ID, or None if not found."""
+        ...
+
+    @abstractmethod
+    async def update_node(self, node_id: UUID, updates: dict) -> NodeBase:
+        """Update a node's fields. Raises KeyError if node not found."""
+        ...
+
+    @abstractmethod
+    async def delete_node(self, node_id: UUID) -> bool:
+        """Delete a node and all its connected edges. Returns False if not found."""
+        ...
+
+    @abstractmethod
+    async def list_nodes(
+        self,
+        node_type: NodeType | None = None,
+        filters: dict | None = None,
+    ) -> list[NodeBase]:
+        """List nodes, optionally filtered by type and field values."""
+        ...
+
+    # --- Edge operations ---
+
+    @abstractmethod
+    async def add_edge(self, edge: EdgeBase) -> EdgeBase:
+        """Add an edge. Raises ValueError if source or target node doesn't exist."""
+        ...
+
+    @abstractmethod
+    async def get_edges(
+        self,
+        node_id: UUID,
+        direction: str = "outgoing",
+        edge_type: EdgeType | None = None,
+    ) -> list[EdgeBase]:
+        """Get edges connected to a node. Direction: 'outgoing', 'incoming', or 'both'."""
+        ...
+
+    @abstractmethod
+    async def remove_edge(
+        self, source_id: UUID, target_id: UUID, edge_type: EdgeType
+    ) -> bool:
+        """Remove a specific edge. Returns False if not found."""
+        ...
+
+    # --- Traversal queries ---
+
+    @abstractmethod
+    async def get_neighbors(
+        self,
+        node_id: UUID,
+        edge_type: EdgeType | None = None,
+        direction: str = "outgoing",
+    ) -> list[NodeBase]:
+        """Get nodes directly connected to the given node."""
+        ...
+
+    @abstractmethod
+    async def get_subgraph(
+        self,
+        root_id: UUID,
+        depth: int = 2,
+        edge_types: list[EdgeType] | None = None,
+    ) -> SubGraph:
+        """BFS traversal from root, returning all nodes/edges within depth hops."""
+        ...
+
+    @abstractmethod
+    async def traverse(
+        self,
+        root_id: UUID,
+        edge_types: list[EdgeType],
+        max_depth: int = 5,
+    ) -> list[list[UUID]]:
+        """Find all paths from root following the given edge types, up to max_depth."""
+        ...
+```
+
+*Source: `twin_core/graph_engine.py`*
 
 ---
 
@@ -288,51 +528,100 @@ The Twin uses a Git-like branching model for the artifact graph. Every mutation 
 from abc import ABC, abstractmethod
 
 class VersionEngine(ABC):
+    """Abstract interface for Git-like versioning of the artifact graph."""
+
     @abstractmethod
     async def create_branch(self, name: str, from_version: UUID | None = None) -> str:
-        """Create a new branch from the given version (or HEAD of main)."""
+        """Create a new branch, optionally forking from a specific version.
+
+        If from_version is None, forks from the HEAD of "main".
+
+        Raises:
+            ValueError: If branch name already exists.
+            KeyError: If from_version doesn't exist.
+        """
         ...
 
     @abstractmethod
     async def commit(
-        self, branch: str, message: str, artifact_ids: list[UUID], author: str
+        self,
+        branch: str,
+        message: str,
+        artifact_ids: list[UUID],
+        author: str,
     ) -> Version:
-        """Create a new version on the given branch."""
+        """Create a new version on the given branch.
+
+        Captures a snapshot of all tracked artifacts, overlaying changes
+        from the provided artifact_ids.
+
+        Raises:
+            KeyError: If branch doesn't exist or an artifact_id is not in the graph.
+        """
         ...
 
     @abstractmethod
     async def merge(
-        self, source_branch: str, target_branch: str, message: str, author: str
+        self,
+        source_branch: str,
+        target_branch: str,
+        message: str,
+        author: str,
     ) -> Version:
-        """Merge source branch into target branch. Raises on conflict."""
+        """Merge source_branch into target_branch.
+
+        Uses three-way merge with common ancestor detection.
+
+        Raises:
+            KeyError: If either branch doesn't exist.
+            MergeConflict: If conflicting changes are detected.
+        """
         ...
 
     @abstractmethod
-    async def diff(self, version_a: UUID, version_b: UUID) -> "VersionDiff":
-        """Compute the diff between two versions."""
+    async def diff(self, version_a: UUID, version_b: UUID) -> VersionDiff:
+        """Compute the diff between two versions.
+
+        Raises:
+            KeyError: If either version doesn't exist.
+        """
         ...
 
     @abstractmethod
     async def log(self, branch: str, limit: int = 50) -> list[Version]:
-        """Return version history for a branch."""
+        """Return commit history for a branch, newest first.
+
+        Raises:
+            KeyError: If branch doesn't exist.
+        """
         ...
 
     @abstractmethod
     async def get_head(self, branch: str) -> Version:
-        """Get the latest version on a branch."""
+        """Get the HEAD version of a branch.
+
+        Raises:
+            KeyError: If branch doesn't exist or has no commits.
+        """
         ...
 ```
+
+*Source: `twin_core/versioning/branch.py`*
 
 ### Version Diff
 
 ```python
 class ArtifactChange(BaseModel):
+    """A single artifact change between two versions."""
+
     artifact_id: UUID
     change_type: str  # "added", "modified", "deleted"
     old_content_hash: str | None = None
     new_content_hash: str | None = None
 
 class VersionDiff(BaseModel):
+    """The diff between two versions."""
+
     version_a: UUID
     version_b: UUID
     changes: list[ArtifactChange]
@@ -340,13 +629,41 @@ class VersionDiff(BaseModel):
     constraints_removed: list[UUID] = Field(default_factory=list)
 ```
 
-### Conflict Detection
+*Source: `twin_core/models/version.py`*
 
-When merging branches, the Twin detects conflicts by comparing artifact content hashes:
+### Three-Way Merge Algorithm
 
-1. **No conflict**: Only one branch modified the artifact.
-2. **Content conflict**: Both branches modified the same artifact with different content hashes.
-3. **Structural conflict**: One branch deleted an artifact that the other branch depends on.
+The merge implementation follows Git's three-way merge strategy:
+
+1. **Common ancestor detection**: `_find_common_ancestor()` uses interleaved BFS from both branch HEADs, walking `parent_id` and `merge_parent_id` links, to find the nearest shared commit.
+
+2. **Conflict detection**: `detect_conflicts()` compares source and target snapshots against the ancestor:
+   - **Content conflict**: Both branches modified the same artifact with different content hashes.
+   - **Structural conflict**: One branch deleted an artifact that the other branch modified (or added differently).
+   - **No conflict**: If only one side changed, or both sides made identical changes.
+
+3. **Merge execution**: `perform_merge()` starts from the target snapshot and applies non-conflicting source changes. If any conflicts exist, it raises `MergeConflict`.
+
+```python
+class ConflictDetail(BaseModel):
+    """Description of a single merge conflict."""
+
+    artifact_id: UUID
+    conflict_type: str  # "content" or "structural"
+    source_hash: str | None = None
+    target_hash: str | None = None
+
+
+class MergeConflict(Exception):
+    """Raised when a three-way merge encounters unresolvable conflicts."""
+
+    def __init__(self, conflicts: list[ConflictDetail]) -> None:
+        self.conflicts = conflicts
+        ids = ", ".join(str(c.artifact_id)[:8] for c in conflicts)
+        super().__init__(f"Merge conflicts on artifacts: {ids}")
+```
+
+*Source: `twin_core/versioning/merge.py`*
 
 Conflicts must be resolved manually (by a human or an agent with explicit instructions). Auto-merge is only performed for non-conflicting changes.
 
@@ -355,6 +672,55 @@ Conflicts must be resolved manually (by a human or an agent with explicit instru
 ## 5. Constraint Engine
 
 The Constraint Engine evaluates rules against the current graph state. It runs automatically on every proposed commit.
+
+### Constraint Engine Interface
+
+```python
+from abc import ABC, abstractmethod
+from uuid import UUID
+from twin_core.constraint_engine.models import ConstraintEvaluationResult
+from twin_core.models.constraint import Constraint
+
+
+class ConstraintEngine(ABC):
+    """Abstract interface for constraint evaluation against the Digital Twin graph."""
+
+    @abstractmethod
+    async def evaluate(
+        self, artifact_ids: list[UUID]
+    ) -> ConstraintEvaluationResult:
+        """Evaluate constraints relevant to the given artifacts.
+
+        Returns a result indicating whether all ERROR-severity constraints pass.
+        """
+        ...
+
+    @abstractmethod
+    async def evaluate_all(self) -> ConstraintEvaluationResult:
+        """Evaluate every constraint in the graph."""
+        ...
+
+    @abstractmethod
+    async def add_constraint(
+        self, constraint: Constraint, artifact_ids: list[UUID]
+    ) -> Constraint:
+        """Register a constraint and create CONSTRAINED_BY edges to the given artifacts."""
+        ...
+
+    @abstractmethod
+    async def get_constraint(self, constraint_id: UUID) -> Constraint | None:
+        """Retrieve a constraint by ID, or None if not found."""
+        ...
+
+    @abstractmethod
+    async def remove_constraint(self, constraint_id: UUID) -> bool:
+        """Delete a constraint node and all its edges. Returns False if not found."""
+        ...
+```
+
+> **v0.1**: `InMemoryConstraintEngine` backed by a `GraphEngine` instance.
+
+*Source: `twin_core/constraint_engine/validator.py`*
 
 ### Constraint Language
 
@@ -376,53 +742,121 @@ Constraints are expressed as Python expressions evaluated against a context obje
 "ctx.artifact('pcb_layout').metadata.get('drc_status') == 'pass'"
 ```
 
+### Safe Builtins Whitelist
+
+Constraint expressions run in a restricted `eval()` environment. Only the following 25 builtins are available — no `__import__`, `open`, `exec`, `eval`, or `compile`:
+
+| Category | Functions |
+|----------|-----------|
+| Aggregation | `all`, `any`, `len`, `min`, `max`, `sum`, `abs`, `round` |
+| Iteration | `sorted`, `enumerate`, `zip`, `map`, `filter` |
+| Type checking | `isinstance` |
+| Type constructors | `str`, `int`, `float`, `bool`, `list`, `dict`, `set`, `tuple` |
+| Constants | `True`, `False`, `None` |
+
+*Source: `twin_core/constraint_engine/validator.py` (`_SAFE_BUILTINS` dict)*
+
 ### Constraint Evaluation Context
 
-```python
-class ConstraintContext(BaseModel):
-    """Provided to constraint expressions during evaluation."""
+The `ConstraintContext` is a **plain class** (not a Pydantic `BaseModel`) that provides a synchronous, read-only view of the graph state. It is pre-loaded asynchronously by `build_context()` so that `eval()` never needs to `await`.
 
-    class Config:
-        arbitrary_types_allowed = True
+```python
+class ConstraintContext:
+    """Synchronous read-only snapshot of graph state, exposed as ``ctx`` in expressions."""
+
+    def __init__(
+        self,
+        artifacts_by_name: dict[str, Artifact],
+        artifacts_by_id: dict[UUID, Artifact],
+        all_components: list[Component],
+        dependency_map: dict[UUID, list[UUID]],
+    ) -> None: ...
 
     def artifact(self, name: str) -> Artifact:
-        """Retrieve an artifact by name from the current graph state."""
+        """Lookup an artifact by name. Raises KeyError if not found."""
         ...
 
-    def artifacts(self, domain: str | None = None, type: ArtifactType | None = None) -> list[Artifact]:
-        """Query artifacts by domain and/or type."""
+    def artifacts(
+        self,
+        domain: str | None = None,
+        type: str | None = None,
+    ) -> list[Artifact]:
+        """Return artifacts, optionally filtered by domain and/or type."""
         ...
 
     def components(self) -> list[Component]:
-        """Retrieve all components in the current design."""
+        """Return all components in the graph."""
         ...
 
     def dependents(self, artifact_id: UUID) -> list[Artifact]:
-        """Get all artifacts that depend on the given artifact."""
+        """Return artifacts that have incoming DEPENDS_ON edges to artifact_id."""
         ...
+
+
+async def build_context(graph: GraphEngine) -> ConstraintContext:
+    """Async factory that pre-loads graph state into a synchronous ConstraintContext.
+
+    Loads all artifacts (indexed by name and ID), all components, and builds
+    a dependency map by following incoming DEPENDS_ON edges.
+    """
+    ...
 ```
+
+*Source: `twin_core/constraint_engine/context.py`*
+
+### Constraint Resolver
+
+The resolver module handles two-phase constraint discovery:
+
+```python
+async def resolve_constraints(
+    graph: GraphEngine,
+    artifact_ids: list[UUID],
+) -> list[Constraint]:
+    """Two-phase constraint resolution.
+
+    1. Follow outgoing CONSTRAINED_BY edges from each artifact to find direct constraints.
+    2. Include all cross_domain=True constraints from the graph.
+    3. Deduplicate by constraint ID.
+    """
+    ...
+
+
+async def find_constrained_artifacts(
+    graph: GraphEngine,
+    constraint_id: UUID,
+) -> list[UUID]:
+    """Reverse lookup: find which artifacts a constraint applies to.
+
+    Follows incoming CONSTRAINED_BY edges to the constraint node.
+    """
+    ...
+```
+
+*Source: `twin_core/constraint_engine/resolver.py`*
 
 ### Evaluation Lifecycle
 
 ```
 Proposed commit arrives
-        │
-        ▼
+        |
+        v
   Load all constraints linked to modified artifacts
-        │
-        ▼
-  Expand to cross-domain constraints (via CONSTRAINED_BY edges)
-        │
-        ▼
-  Evaluate each constraint expression against graph state
-        │
-        ▼
-  Collect results: PASS / FAIL / WARN
-        │
-        ▼
+  (resolve_constraints: direct CONSTRAINED_BY edges + cross_domain constraints)
+        |
+        v
+  Build ConstraintContext (async pre-load of graph state)
+        |
+        v
+  Evaluate each constraint expression against ctx (restricted eval)
+        |
+        v
+  Collect results: PASS / FAIL / WARN / SKIPPED
+        |
+        v
   Any ERROR-severity FAIL?
-   ├── Yes → Block commit, return violations
-   └── No → Allow commit (warnings logged)
+   |-- Yes -> Block commit, return violations
+   +-- No  -> Allow commit (warnings logged)
 ```
 
 ### Constraint Evaluation Result
@@ -433,24 +867,28 @@ class ConstraintViolation(BaseModel):
     constraint_name: str
     severity: ConstraintSeverity
     message: str
-    artifact_ids: list[UUID]  # Artifacts involved in the violation
+    artifact_ids: list[UUID] = Field(default_factory=list)
     expression: str
     evaluated_at: datetime
 
 class ConstraintEvaluationResult(BaseModel):
-    passed: bool
+    passed: bool  # False if any ERROR-severity constraint fails
     violations: list[ConstraintViolation] = Field(default_factory=list)
     warnings: list[ConstraintViolation] = Field(default_factory=list)
-    evaluated_count: int
-    skipped_count: int
-    duration_ms: float
+    evaluated_count: int = 0
+    skipped_count: int = 0
+    duration_ms: float = 0.0
 ```
+
+*Source: `twin_core/constraint_engine/models.py`*
 
 ---
 
 ## 6. Twin API
 
 The Twin API is the public interface for all graph operations. Agents, the orchestrator, and the gateway interact with the Twin exclusively through this API.
+
+> **Note**: The Twin API composes the lower-level `GraphEngine`, `VersionEngine`, and `ConstraintEngine` interfaces into a single facade. See Section 3.1, Section 4, and Section 5 for the underlying ABCs.
 
 ### CRUD Operations
 
@@ -510,20 +948,20 @@ class TwinAPI(ABC):
 
     # --- Relationships ---
     @abstractmethod
-    async def add_edge(self, source_id: UUID, target_id: UUID, edge_type: str, metadata: dict | None = None) -> EdgeBase:
+    async def add_edge(self, source_id: UUID, target_id: UUID, edge_type: EdgeType, metadata: dict | None = None) -> EdgeBase:
         ...
 
     @abstractmethod
-    async def get_edges(self, node_id: UUID, direction: str = "outgoing", edge_type: str | None = None) -> list[EdgeBase]:
+    async def get_edges(self, node_id: UUID, direction: str = "outgoing", edge_type: EdgeType | None = None) -> list[EdgeBase]:
         ...
 
     @abstractmethod
-    async def remove_edge(self, source_id: UUID, target_id: UUID, edge_type: str) -> bool:
+    async def remove_edge(self, source_id: UUID, target_id: UUID, edge_type: EdgeType) -> bool:
         ...
 
     # --- Queries ---
     @abstractmethod
-    async def get_subgraph(self, root_id: UUID, depth: int = 2, edge_types: list[str] | None = None) -> "SubGraph":
+    async def get_subgraph(self, root_id: UUID, depth: int = 2, edge_types: list[EdgeType] | None = None) -> SubGraph:
         ...
 
     @abstractmethod
@@ -553,19 +991,11 @@ class TwinAPI(ABC):
         ...
 ```
 
-### SubGraph Response
-
-```python
-class SubGraph(BaseModel):
-    nodes: list[Artifact | Constraint | Component | AgentNode]
-    edges: list[EdgeBase]
-    root_id: UUID
-    depth: int
-```
-
 ---
 
 ## 7. Neo4j Implementation
+
+> **Status**: Planned for v0.2+. The current implementation uses `InMemoryGraphEngine`.
 
 ### Index Strategy
 
