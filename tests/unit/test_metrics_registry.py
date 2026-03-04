@@ -236,7 +236,7 @@ class TestMetricsCollectorWithMeter:
         counter = collector._instruments[MetricsRegistry.AGENT_LLM_TOKENS_TOTAL.name]
         counter.add.assert_called_once_with(
             500,
-            {
+            attributes={
                 "agent_code": "MECH",
                 "llm_provider": "openai",
                 "llm_model": "gpt-4",
@@ -251,7 +251,7 @@ class TestMetricsCollectorWithMeter:
         gauge = collector._instruments[MetricsRegistry.KAFKA_CONSUMER_LAG.name]
         gauge.add.assert_called_once_with(
             42,
-            {"consumer_group": "group-1", "topic": "events", "partition": "0"},
+            attributes={"consumer_group": "group-1", "topic": "events", "partition": "0"},
         )
 
     def test_record_message_produced_calls_counter(
@@ -261,7 +261,7 @@ class TestMetricsCollectorWithMeter:
         collector.create_instruments(MetricsRegistry.kafka_metrics())
         collector.record_message_produced("events")
         counter = collector._instruments[MetricsRegistry.KAFKA_MESSAGES_PRODUCED.name]
-        counter.add.assert_called_once_with(1, {"topic": "events"})
+        counter.add.assert_called_once_with(1, attributes={"topic": "events"})
 
     def test_record_message_consumed_calls_counter(
         self, mock_meter: MagicMock
@@ -271,7 +271,7 @@ class TestMetricsCollectorWithMeter:
         collector.record_message_consumed("events", "group-1")
         counter = collector._instruments[MetricsRegistry.KAFKA_MESSAGES_CONSUMED.name]
         counter.add.assert_called_once_with(
-            1, {"topic": "events", "consumer_group": "group-1"}
+            1, attributes={"topic": "events", "consumer_group": "group-1"}
         )
 
     def test_record_dead_letter_calls_counter(self, mock_meter: MagicMock) -> None:
@@ -280,5 +280,5 @@ class TestMetricsCollectorWithMeter:
         collector.record_dead_letter("events", "group-1")
         counter = collector._instruments[MetricsRegistry.KAFKA_DEAD_LETTERS.name]
         counter.add.assert_called_once_with(
-            1, {"topic": "events", "consumer_group": "group-1"}
+            1, attributes={"topic": "events", "consumer_group": "group-1"}
         )
