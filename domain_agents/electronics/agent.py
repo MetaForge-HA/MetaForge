@@ -13,6 +13,10 @@ from uuid import UUID, uuid4
 import structlog
 from pydantic import BaseModel
 
+from domain_agents.electronics.skills.run_drc.handler import RunDrcHandler
+from domain_agents.electronics.skills.run_drc.schema import RunDrcInput
+from domain_agents.electronics.skills.run_erc.handler import RunErcHandler
+from domain_agents.electronics.skills.run_erc.schema import RunErcInput
 from skill_registry.mcp_bridge import McpBridge
 from skill_registry.skill_base import SkillContext
 
@@ -127,7 +131,7 @@ class ElectronicsAgent:
         """Run Electrical Rules Check on a schematic file.
 
         Requires 'schematic_file' in request.parameters.
-        Currently returns a stub error since the ERC skill is not yet implemented.
+        Delegates to the RunErcHandler skill via MCP bridge.
         """
         schematic_file: str = request.parameters.get("schematic_file", "")
         if not schematic_file:
@@ -140,25 +144,50 @@ class ElectronicsAgent:
 
         self.logger.info("ERC requested", schematic_file=schematic_file)
 
+        ctx = self._create_skill_context(request.branch)
+        skill_input = RunErcInput(
+            artifact_id=str(request.artifact_id),
+            schematic_file=schematic_file,
+            severity_filter=request.parameters.get("severity_filter", "all"),
+        )
+
+        handler = RunErcHandler(ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=result.errors,
+            )
+
+        output = result.data
         return TaskResult(
             task_type=request.task_type,
             artifact_id=request.artifact_id,
-            success=False,
-            errors=["run_erc skill is not yet implemented"],
+            success=output.passed,
             skill_results=[
                 {
                     "skill": "run_erc",
-                    "status": "not_implemented",
-                    "schematic_file": schematic_file,
+                    "passed": output.passed,
+                    "total_violations": output.total_violations,
+                    "total_errors": output.total_errors,
+                    "total_warnings": output.total_warnings,
+                    "summary": output.summary,
+                    "schematic_file": output.schematic_file,
                 }
             ],
+            warnings=(
+                [output.summary] if output.total_warnings > 0 else []
+            ),
         )
 
     async def _run_drc(self, request: TaskRequest) -> TaskResult:
         """Run Design Rules Check on a PCB layout file.
 
         Requires 'pcb_file' in request.parameters.
-        Currently returns a stub error since the DRC skill is not yet implemented.
+        Delegates to the RunDrcHandler skill via MCP bridge.
         """
         pcb_file: str = request.parameters.get("pcb_file", "")
         if not pcb_file:
@@ -171,18 +200,43 @@ class ElectronicsAgent:
 
         self.logger.info("DRC requested", pcb_file=pcb_file)
 
+        ctx = self._create_skill_context(request.branch)
+        skill_input = RunDrcInput(
+            artifact_id=str(request.artifact_id),
+            pcb_file=pcb_file,
+            severity_filter=request.parameters.get("severity_filter", "all"),
+        )
+
+        handler = RunDrcHandler(ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=result.errors,
+            )
+
+        output = result.data
         return TaskResult(
             task_type=request.task_type,
             artifact_id=request.artifact_id,
-            success=False,
-            errors=["run_drc skill is not yet implemented"],
+            success=output.passed,
             skill_results=[
                 {
                     "skill": "run_drc",
-                    "status": "not_implemented",
-                    "pcb_file": pcb_file,
+                    "passed": output.passed,
+                    "total_violations": output.total_violations,
+                    "total_errors": output.total_errors,
+                    "total_warnings": output.total_warnings,
+                    "summary": output.summary,
+                    "pcb_file": output.pcb_file,
                 }
             ],
+            warnings=(
+                [output.summary] if output.total_warnings > 0 else []
+            ),
         )
 
     async def _run_check_power_budget(self, request: TaskRequest) -> TaskResult:

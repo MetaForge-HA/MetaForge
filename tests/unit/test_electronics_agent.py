@@ -11,6 +11,32 @@ from domain_agents.electronics.agent import ElectronicsAgent, TaskRequest, TaskR
 from skill_registry.mcp_bridge import InMemoryMcpBridge
 
 
+def _erc_response(violations: list[dict] | None = None) -> dict:
+    """Build a mock ERC tool response."""
+    viols = violations or []
+    return {
+        "schematic_file": "eda/kicad/main.kicad_sch",
+        "total_violations": len(viols),
+        "errors": sum(1 for v in viols if v.get("severity") == "error"),
+        "warnings": sum(1 for v in viols if v.get("severity") == "warning"),
+        "violations": viols,
+        "passed": all(v.get("severity") != "error" for v in viols),
+    }
+
+
+def _drc_response(violations: list[dict] | None = None) -> dict:
+    """Build a mock DRC tool response."""
+    viols = violations or []
+    return {
+        "pcb_file": "eda/kicad/main.kicad_pcb",
+        "total_violations": len(viols),
+        "errors": sum(1 for v in viols if v.get("severity") == "error"),
+        "warnings": sum(1 for v in viols if v.get("severity") == "warning"),
+        "violations": viols,
+        "passed": all(v.get("severity") != "error" for v in viols),
+    }
+
+
 @pytest.fixture
 def mock_twin() -> AsyncMock:
     twin = AsyncMock()
@@ -24,9 +50,12 @@ def mock_twin() -> AsyncMock:
 @pytest.fixture
 def mcp_bridge() -> InMemoryMcpBridge:
     bridge = InMemoryMcpBridge()
-    # Register tools that will be used once skills are implemented
-    bridge.register_tool("kicad.run_erc", "erc_check")
-    bridge.register_tool("kicad.run_drc", "drc_check")
+    # Register tools as available
+    bridge.register_tool("kicad.run_erc", "erc_validation")
+    bridge.register_tool("kicad.run_drc", "drc_validation")
+    # Register clean responses (no violations)
+    bridge.register_tool_response("kicad.run_erc", _erc_response())
+    bridge.register_tool_response("kicad.run_drc", _drc_response())
     return bridge
 
 
@@ -93,8 +122,35 @@ class TestElectronicsAgent:
 class TestRunErc:
     """Tests for the run_erc task type."""
 
-    async def test_not_yet_implemented(self, agent: ElectronicsAgent):
-        """ERC should return a not-yet-implemented stub error."""
+    async def test_erc_passes_no_violations(self, agent: ElectronicsAgent):
+        """ERC with no violations should succeed through the agent."""
+        request = TaskRequest(
+            task_type="run_erc",
+            artifact_id=uuid4(),
+            parameters={"schematic_file": "eda/kicad/main.kicad_sch"},
+        )
+        result = await agent.run_task(request)
+
+        assert result.success is True
+        assert result.task_type == "run_erc"
+        assert len(result.skill_results) == 1
+        assert result.skill_results[0]["skill"] == "run_erc"
+        assert result.skill_results[0]["passed"] is True
+        assert result.skill_results[0]["total_violations"] == 0
+
+    async def test_erc_fails_with_errors(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """ERC with errors should report failure through the agent."""
+        mcp_bridge.register_tool_response(
+            "kicad.run_erc",
+            _erc_response(
+                violations=[
+                    {"rule_id": "ERC001", "severity": "error", "message": "Pin unconnected"},
+                ]
+            ),
+        )
+        agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
         request = TaskRequest(
             task_type="run_erc",
             artifact_id=uuid4(),
@@ -103,11 +159,32 @@ class TestRunErc:
         result = await agent.run_task(request)
 
         assert result.success is False
-        assert any("not yet implemented" in e for e in result.errors)
-        assert result.task_type == "run_erc"
-        assert len(result.skill_results) == 1
-        assert result.skill_results[0]["skill"] == "run_erc"
-        assert result.skill_results[0]["status"] == "not_implemented"
+        assert result.skill_results[0]["total_errors"] == 1
+        assert result.skill_results[0]["passed"] is False
+
+    async def test_erc_passes_warnings_only(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """ERC with only warnings should succeed (warnings are acceptable)."""
+        mcp_bridge.register_tool_response(
+            "kicad.run_erc",
+            _erc_response(
+                violations=[
+                    {"rule_id": "ERC010", "severity": "warning", "message": "Unused net"},
+                ]
+            ),
+        )
+        agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
+        request = TaskRequest(
+            task_type="run_erc",
+            artifact_id=uuid4(),
+            parameters={"schematic_file": "eda/kicad/main.kicad_sch"},
+        )
+        result = await agent.run_task(request)
+
+        assert result.success is True
+        assert result.skill_results[0]["total_warnings"] == 1
+        assert len(result.warnings) == 1
 
     async def test_missing_schematic_file(self, agent: ElectronicsAgent):
         """ERC should fail when schematic_file parameter is missing."""
@@ -127,8 +204,35 @@ class TestRunErc:
 class TestRunDrc:
     """Tests for the run_drc task type."""
 
-    async def test_not_yet_implemented(self, agent: ElectronicsAgent):
-        """DRC should return a not-yet-implemented stub error."""
+    async def test_drc_passes_no_violations(self, agent: ElectronicsAgent):
+        """DRC with no violations should succeed through the agent."""
+        request = TaskRequest(
+            task_type="run_drc",
+            artifact_id=uuid4(),
+            parameters={"pcb_file": "eda/kicad/main.kicad_pcb"},
+        )
+        result = await agent.run_task(request)
+
+        assert result.success is True
+        assert result.task_type == "run_drc"
+        assert len(result.skill_results) == 1
+        assert result.skill_results[0]["skill"] == "run_drc"
+        assert result.skill_results[0]["passed"] is True
+        assert result.skill_results[0]["total_violations"] == 0
+
+    async def test_drc_fails_with_errors(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """DRC with errors should report failure through the agent."""
+        mcp_bridge.register_tool_response(
+            "kicad.run_drc",
+            _drc_response(
+                violations=[
+                    {"rule_id": "DRC001", "severity": "error", "message": "Clearance violation"},
+                ]
+            ),
+        )
+        agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
         request = TaskRequest(
             task_type="run_drc",
             artifact_id=uuid4(),
@@ -137,11 +241,32 @@ class TestRunDrc:
         result = await agent.run_task(request)
 
         assert result.success is False
-        assert any("not yet implemented" in e for e in result.errors)
-        assert result.task_type == "run_drc"
-        assert len(result.skill_results) == 1
-        assert result.skill_results[0]["skill"] == "run_drc"
-        assert result.skill_results[0]["status"] == "not_implemented"
+        assert result.skill_results[0]["total_errors"] == 1
+        assert result.skill_results[0]["passed"] is False
+
+    async def test_drc_passes_warnings_only(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """DRC with only warnings should succeed (warnings are acceptable)."""
+        mcp_bridge.register_tool_response(
+            "kicad.run_drc",
+            _drc_response(
+                violations=[
+                    {"rule_id": "DRC010", "severity": "warning", "message": "Track near edge"},
+                ]
+            ),
+        )
+        agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
+        request = TaskRequest(
+            task_type="run_drc",
+            artifact_id=uuid4(),
+            parameters={"pcb_file": "eda/kicad/main.kicad_pcb"},
+        )
+        result = await agent.run_task(request)
+
+        assert result.success is True
+        assert result.skill_results[0]["total_warnings"] == 1
+        assert len(result.warnings) == 1
 
     async def test_missing_pcb_file(self, agent: ElectronicsAgent):
         """DRC should fail when pcb_file parameter is missing."""
@@ -221,12 +346,30 @@ class TestFullValidation:
 
         assert result.task_type == "full_validation"
         assert result.artifact_id == artifact_id
-        # All stubs return not-implemented, so overall should fail
+        # ERC and DRC pass (clean responses), but power budget is not yet implemented
         assert result.success is False
         # Should have results from all three checks
         assert len(result.skill_results) == 3
         skills_run = {r["skill"] for r in result.skill_results}
         assert skills_run == {"run_erc", "run_drc", "check_power_budget"}
+
+    async def test_full_validation_erc_drc_pass(self, agent: ElectronicsAgent):
+        """Full validation with only ERC + DRC (no power budget) should pass."""
+        request = TaskRequest(
+            task_type="full_validation",
+            artifact_id=uuid4(),
+            parameters={
+                "schematic_file": "eda/kicad/main.kicad_sch",
+                "pcb_file": "eda/kicad/main.kicad_pcb",
+            },
+        )
+        result = await agent.run_task(request)
+
+        assert result.task_type == "full_validation"
+        assert result.success is True
+        assert len(result.skill_results) == 2
+        skills_run = {r["skill"] for r in result.skill_results}
+        assert skills_run == {"run_erc", "run_drc"}
 
     async def test_full_validation_partial_parameters(self, agent: ElectronicsAgent):
         """Full validation should only run checks for which parameters are provided."""

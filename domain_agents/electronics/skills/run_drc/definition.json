@@ -1,1 +1,21 @@
-{}
+{
+  "name": "run_drc",
+  "version": "0.1.0",
+  "domain": "electronics",
+  "agent": "electronics",
+  "description": "Runs Design Rules Check (DRC) on a KiCad PCB layout and returns categorised violations.",
+  "phase": 1,
+  "tools_required": [
+    {
+      "tool_id": "kicad.run_drc",
+      "capability": "drc_validation",
+      "required": true
+    }
+  ],
+  "input_schema": "schema.RunDrcInput",
+  "output_schema": "schema.RunDrcOutput",
+  "timeout_seconds": 120,
+  "retries": 1,
+  "idempotent": true,
+  "tags": ["drc", "pcb", "validation", "electronics", "kicad"]
+}
