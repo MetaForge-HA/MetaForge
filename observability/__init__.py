@@ -1,9 +1,17 @@
-"""MetaForge observability package.
+"""MetaForge Observability -- OTel bootstrap, config, structlog bridge, metrics, tracing, and middleware."""
 
-Provides custom span helpers, metrics registry, W3C TraceContext propagation,
-and .forge/traces/ JSONL enrichment for cross-boundary distributed tracing.
-"""
-
+from observability.bootstrap import (
+    ObservabilityState,
+    init_observability,
+    shutdown_observability,
+)
+from observability.config import (
+    GrafanaConfig,
+    ObservabilityConfig,
+    OtlpExporterConfig,
+    PrometheusConfig,
+)
+from observability.logging import add_trace_context, configure_logging
 from observability.metrics import MetricDefinition, MetricsCollector, MetricsRegistry
 from observability.propagation import (
     extract_trace_context,
@@ -20,16 +28,27 @@ from observability.tracing import (
 )
 
 __all__ = [
+    # config (MET-99)
+    "ObservabilityConfig",
+    "ObservabilityState",
+    "OtlpExporterConfig",
+    "PrometheusConfig",
+    "GrafanaConfig",
+    "init_observability",
+    "shutdown_observability",
+    # logging (MET-100)
+    "add_trace_context",
+    "configure_logging",
+    # metrics (MET-101, MET-107, MET-108)
+    "MetricDefinition",
+    "MetricsCollector",
+    "MetricsRegistry",
     # tracing (MET-106)
     "SPAN_CATALOG",
     "NoOpSpan",
     "NoOpTracer",
     "get_tracer",
     "traced",
-    # metrics (MET-107)
-    "MetricDefinition",
-    "MetricsCollector",
-    "MetricsRegistry",
     # propagation (MET-109)
     "extract_trace_context",
     "inject_trace_context",

@@ -1,14 +1,27 @@
-"""Agent, skill, and infrastructure metric definitions and collector (MET-107/MET-108)."""
+"""MetaForge Prometheus metrics registry and collector.
+
+Defines metric descriptors as Pydantic models and provides a
+``MetricsCollector`` that wraps OpenTelemetry meter instruments. When the
+OTel SDK is not installed the collector degrades to a silent no-op so the
+rest of the platform can import it unconditionally.
+"""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+# ---------------------------------------------------------------------------
+# Metric definition model
+# ---------------------------------------------------------------------------
+
+_METRIC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class MetricDefinition(BaseModel):
-    """Describes a single metric in the MetaForge observability system."""
+    """Declarative description of a single Prometheus-style metric."""
 
     name: str
     type: str  # "counter", "histogram", "gauge"
@@ -17,9 +30,31 @@ class MetricDefinition(BaseModel):
     unit: str = ""
     buckets: list[float] | None = None
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not _METRIC_NAME_RE.match(v):
+            raise ValueError(
+                f"Metric name must be snake_case and start with a letter, got {v!r}"
+            )
+        return v
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, v: str) -> str:
+        allowed = {"counter", "histogram", "gauge"}
+        if v not in allowed:
+            raise ValueError(f"Metric type must be one of {allowed}, got {v!r}")
+        return v
+
+
+# ---------------------------------------------------------------------------
+# Registry of all MetaForge metrics
+# ---------------------------------------------------------------------------
+
 
 class MetricsRegistry:
-    """Central registry of all MetaForge metrics."""
+    """Central registry of all MetaForge Prometheus metrics."""
 
     # ── Gateway metrics (MET-101) ──────────────────────────────────────
     GATEWAY_REQUEST_TOTAL = MetricDefinition(
@@ -39,13 +74,13 @@ class MetricsRegistry:
     GATEWAY_WEBSOCKET_CONNECTIONS = MetricDefinition(
         name="metaforge_gateway_websocket_connections",
         type="gauge",
-        description="Current WebSocket connections",
+        description="Active WebSocket connections",
         labels=["state"],
     )
     GATEWAY_ACTIVE_SESSIONS = MetricDefinition(
         name="metaforge_gateway_active_sessions",
         type="gauge",
-        description="Current active gateway sessions",
+        description="Active user sessions",
         labels=["status"],
     )
 
@@ -154,6 +189,9 @@ class MetricsRegistry:
             cls.GATEWAY_ACTIVE_SESSIONS,
         ]
 
+    # Keep backward-compatible alias
+    all_gateway_metrics = gateway_metrics
+
     @classmethod
     def agent_metrics(cls) -> list[MetricDefinition]:
         """Return the 5 agent metrics."""
@@ -185,42 +223,45 @@ class MetricsRegistry:
         ]
 
 
+# ---------------------------------------------------------------------------
+# Metrics collector (wraps OTel meter or degrades to no-op)
+# ---------------------------------------------------------------------------
+
+
 class MetricsCollector:
-    """Collects and records metrics via OTel meter (or no-op).
+    """Collects metrics using an OTel MeterProvider (or no-op if unavailable).
 
     All public recording methods are safe to call even when no OTel meter is
     configured -- they simply become no-ops.
     """
 
-    def __init__(self, meter: Any = None) -> None:
+    def __init__(self, meter: Any | None = None) -> None:
         self._meter = meter
         self._instruments: dict[str, Any] = {}
 
     def create_instruments(self, definitions: list[MetricDefinition]) -> None:
-        """Create OTel instruments from metric definitions.
-
-        When no meter is configured the method is a no-op.
-        """
+        """Create OTel instruments from *definitions*.  No-op if no meter."""
         if self._meter is None:
             return
+
         for defn in definitions:
             if defn.type == "counter":
                 self._instruments[defn.name] = self._meter.create_counter(
                     name=defn.name,
                     description=defn.description,
-                    unit=defn.unit or "1",
+                    unit=defn.unit,
                 )
             elif defn.type == "histogram":
                 self._instruments[defn.name] = self._meter.create_histogram(
                     name=defn.name,
                     description=defn.description,
-                    unit=defn.unit or "1",
+                    unit=defn.unit,
                 )
             elif defn.type == "gauge":
                 self._instruments[defn.name] = self._meter.create_up_down_counter(
                     name=defn.name,
                     description=defn.description,
-                    unit=defn.unit or "1",
+                    unit=defn.unit,
                 )
 
     # ── Gateway ────────────────────────────────────────────────────────
@@ -230,26 +271,33 @@ class MetricsCollector:
     ) -> None:
         """Record an HTTP request (counter + histogram)."""
         counter = self._instruments.get(MetricsRegistry.GATEWAY_REQUEST_TOTAL.name)
-        if counter:
+        if counter is not None:
             counter.add(
                 1,
-                {"method": method, "endpoint": endpoint, "status_code": str(status_code)},
+                attributes={
+                    "method": method,
+                    "endpoint": endpoint,
+                    "status_code": str(status_code),
+                },
             )
-        hist = self._instruments.get(MetricsRegistry.GATEWAY_REQUEST_DURATION.name)
-        if hist:
-            hist.record(duration, {"method": method, "endpoint": endpoint})
+        histogram = self._instruments.get(MetricsRegistry.GATEWAY_REQUEST_DURATION.name)
+        if histogram is not None:
+            histogram.record(
+                duration,
+                attributes={"method": method, "endpoint": endpoint},
+            )
 
     def set_websocket_connections(self, state: str, count: int) -> None:
-        """Set the current WebSocket connection count."""
+        """Record the current number of WebSocket connections."""
         gauge = self._instruments.get(MetricsRegistry.GATEWAY_WEBSOCKET_CONNECTIONS.name)
-        if gauge:
-            gauge.add(count, {"state": state})
+        if gauge is not None:
+            gauge.add(count, attributes={"state": state})
 
     def set_active_sessions(self, status: str, count: int) -> None:
-        """Set the current active session count."""
+        """Record the current number of active sessions."""
         gauge = self._instruments.get(MetricsRegistry.GATEWAY_ACTIVE_SESSIONS.name)
-        if gauge:
-            gauge.add(count, {"status": status})
+        if gauge is not None:
+            gauge.add(count, attributes={"status": status})
 
     # ── Agent ──────────────────────────────────────────────────────────
 
@@ -258,11 +306,11 @@ class MetricsCollector:
     ) -> None:
         """Record an agent execution (counter + histogram)."""
         counter = self._instruments.get(MetricsRegistry.AGENT_EXECUTION_TOTAL.name)
-        if counter:
-            counter.add(1, {"agent_code": agent_code, "status": status})
+        if counter is not None:
+            counter.add(1, attributes={"agent_code": agent_code, "status": status})
         hist = self._instruments.get(MetricsRegistry.AGENT_EXECUTION_DURATION.name)
-        if hist:
-            hist.record(duration, {"agent_code": agent_code, "status": status})
+        if hist is not None:
+            hist.record(duration, attributes={"agent_code": agent_code, "status": status})
 
     def record_llm_tokens(
         self,
@@ -274,10 +322,10 @@ class MetricsCollector:
     ) -> None:
         """Record LLM token consumption."""
         counter = self._instruments.get(MetricsRegistry.AGENT_LLM_TOKENS_TOTAL.name)
-        if counter:
+        if counter is not None:
             counter.add(
                 count,
-                {
+                attributes={
                     "agent_code": agent_code,
                     "llm_provider": provider,
                     "llm_model": model,
@@ -290,10 +338,10 @@ class MetricsCollector:
     ) -> None:
         """Record LLM cost in USD."""
         counter = self._instruments.get(MetricsRegistry.AGENT_LLM_COST_TOTAL.name)
-        if counter:
+        if counter is not None:
             counter.add(
                 cost_usd,
-                {
+                attributes={
                     "agent_code": agent_code,
                     "llm_provider": provider,
                     "llm_model": model,
@@ -305,10 +353,10 @@ class MetricsCollector:
     ) -> None:
         """Record LLM request duration."""
         hist = self._instruments.get(MetricsRegistry.AGENT_LLM_REQUEST_DURATION.name)
-        if hist:
+        if hist is not None:
             hist.record(
                 duration,
-                {
+                attributes={
                     "agent_code": agent_code,
                     "llm_provider": provider,
                     "llm_model": model,
@@ -322,13 +370,13 @@ class MetricsCollector:
     ) -> None:
         """Record a skill execution (counter + histogram)."""
         counter = self._instruments.get(MetricsRegistry.SKILL_EXECUTION_TOTAL.name)
-        if counter:
+        if counter is not None:
             counter.add(
-                1, {"skill_name": skill_name, "domain": domain, "status": status}
+                1, attributes={"skill_name": skill_name, "domain": domain, "status": status}
             )
         hist = self._instruments.get(MetricsRegistry.SKILL_EXECUTION_DURATION.name)
-        if hist:
-            hist.record(duration, {"skill_name": skill_name, "domain": domain})
+        if hist is not None:
+            hist.record(duration, attributes={"skill_name": skill_name, "domain": domain})
 
     # ── Kafka ──────────────────────────────────────────────────────────
 
@@ -337,32 +385,32 @@ class MetricsCollector:
     ) -> None:
         """Set the current Kafka consumer lag for a partition."""
         gauge = self._instruments.get(MetricsRegistry.KAFKA_CONSUMER_LAG.name)
-        if gauge:
+        if gauge is not None:
             gauge.add(
                 lag,
-                {"consumer_group": group, "topic": topic, "partition": partition},
+                attributes={"consumer_group": group, "topic": topic, "partition": partition},
             )
 
     def record_message_produced(self, topic: str) -> None:
         """Record a Kafka message produced."""
         counter = self._instruments.get(MetricsRegistry.KAFKA_MESSAGES_PRODUCED.name)
-        if counter:
-            counter.add(1, {"topic": topic})
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic})
 
     def record_message_consumed(self, topic: str, group: str) -> None:
         """Record a Kafka message consumed."""
         counter = self._instruments.get(MetricsRegistry.KAFKA_MESSAGES_CONSUMED.name)
-        if counter:
-            counter.add(1, {"topic": topic, "consumer_group": group})
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic, "consumer_group": group})
 
     def record_dead_letter(self, topic: str, group: str) -> None:
         """Record a Kafka dead letter message."""
         counter = self._instruments.get(MetricsRegistry.KAFKA_DEAD_LETTERS.name)
-        if counter:
-            counter.add(1, {"topic": topic, "consumer_group": group})
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic, "consumer_group": group})
 
     def record_rebalance(self, group: str) -> None:
         """Record a Kafka consumer rebalance."""
         counter = self._instruments.get(MetricsRegistry.KAFKA_REBALANCE_TOTAL.name)
-        if counter:
-            counter.add(1, {"consumer_group": group})
+        if counter is not None:
+            counter.add(1, attributes={"consumer_group": group})
