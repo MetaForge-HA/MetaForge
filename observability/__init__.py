@@ -1,4 +1,4 @@
-"""MetaForge Observability -- OTel bootstrap, config, and structlog bridge."""
+"""MetaForge Observability -- OTel bootstrap, config, structlog bridge, metrics, and middleware."""
 
 from observability.bootstrap import (
     ObservabilityState,
