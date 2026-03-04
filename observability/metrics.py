@@ -1,7 +1,7 @@
-"""MET-101: Gateway Prometheus metrics registry and collector.
+"""MetaForge Prometheus metrics registry and collector.
 
 Defines metric descriptors as Pydantic models and provides a
-``MetricsCollector`` that wraps OpenTelemetry meter instruments.  When the
+``MetricsCollector`` that wraps OpenTelemetry meter instruments. When the
 OTel SDK is not installed the collector degrades to a silent no-op so the
 rest of the platform can import it unconditionally.
 """
@@ -28,6 +28,7 @@ class MetricDefinition(BaseModel):
     description: str
     labels: list[str]
     unit: str = ""
+    buckets: list[float] | None = None
 
     @field_validator("name")
     @classmethod
@@ -48,35 +49,34 @@ class MetricDefinition(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Registry of all MetaForge gateway metrics
+# Registry of all MetaForge metrics
 # ---------------------------------------------------------------------------
 
 
 class MetricsRegistry:
-    """Registry of all MetaForge Prometheus metrics."""
+    """Central registry of all MetaForge Prometheus metrics."""
 
+    # ── Gateway metrics (MET-101) ──────────────────────────────────────
     GATEWAY_REQUEST_TOTAL = MetricDefinition(
         name="metaforge_gateway_request_total",
         type="counter",
-        description="Total HTTP requests to gateway",
+        description="Total HTTP requests to the gateway",
         labels=["method", "endpoint", "status_code"],
     )
-
     GATEWAY_REQUEST_DURATION = MetricDefinition(
         name="metaforge_gateway_request_duration_seconds",
         type="histogram",
         description="HTTP request duration in seconds",
         labels=["method", "endpoint"],
         unit="s",
+        buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     )
-
     GATEWAY_WEBSOCKET_CONNECTIONS = MetricDefinition(
         name="metaforge_gateway_websocket_connections",
         type="gauge",
         description="Active WebSocket connections",
         labels=["state"],
     )
-
     GATEWAY_ACTIVE_SESSIONS = MetricDefinition(
         name="metaforge_gateway_active_sessions",
         type="gauge",
@@ -84,14 +84,142 @@ class MetricsRegistry:
         labels=["status"],
     )
 
+    # ── Agent metrics (MET-107) ────────────────────────────────────────
+    AGENT_EXECUTION_DURATION = MetricDefinition(
+        name="metaforge_agent_execution_duration_seconds",
+        type="histogram",
+        description="Agent execution duration in seconds",
+        labels=["agent_code", "status"],
+        unit="s",
+        buckets=[0.1, 0.5, 1, 2, 5, 10, 30, 60, 120],
+    )
+    AGENT_EXECUTION_TOTAL = MetricDefinition(
+        name="metaforge_agent_execution_total",
+        type="counter",
+        description="Total agent executions",
+        labels=["agent_code", "status"],
+    )
+    AGENT_LLM_TOKENS_TOTAL = MetricDefinition(
+        name="metaforge_agent_llm_tokens_total",
+        type="counter",
+        description="Total LLM tokens consumed",
+        labels=["agent_code", "llm_provider", "llm_model", "token_type"],
+    )
+    AGENT_LLM_COST_TOTAL = MetricDefinition(
+        name="metaforge_agent_llm_cost_usd_total",
+        type="counter",
+        description="Total LLM cost in USD",
+        labels=["agent_code", "llm_provider", "llm_model"],
+        unit="usd",
+    )
+    AGENT_LLM_REQUEST_DURATION = MetricDefinition(
+        name="metaforge_agent_llm_request_duration_seconds",
+        type="histogram",
+        description="LLM request duration in seconds",
+        labels=["agent_code", "llm_provider", "llm_model"],
+        unit="s",
+    )
+
+    # ── Skill metrics (MET-107) ────────────────────────────────────────
+    SKILL_EXECUTION_DURATION = MetricDefinition(
+        name="metaforge_skill_execution_duration_seconds",
+        type="histogram",
+        description="Skill execution duration in seconds",
+        labels=["skill_name", "domain"],
+        unit="s",
+    )
+    SKILL_EXECUTION_TOTAL = MetricDefinition(
+        name="metaforge_skill_execution_total",
+        type="counter",
+        description="Total skill executions",
+        labels=["skill_name", "domain", "status"],
+    )
+
+    # ── Kafka metrics (MET-108) ────────────────────────────────────────
+    KAFKA_CONSUMER_LAG = MetricDefinition(
+        name="metaforge_kafka_consumer_lag",
+        type="gauge",
+        description="Kafka consumer lag by partition",
+        labels=["consumer_group", "topic", "partition"],
+    )
+    KAFKA_MESSAGES_PRODUCED = MetricDefinition(
+        name="metaforge_kafka_messages_produced_total",
+        type="counter",
+        description="Total messages produced to Kafka",
+        labels=["topic"],
+    )
+    KAFKA_MESSAGES_CONSUMED = MetricDefinition(
+        name="metaforge_kafka_messages_consumed_total",
+        type="counter",
+        description="Total messages consumed from Kafka",
+        labels=["topic", "consumer_group"],
+    )
+    KAFKA_DEAD_LETTERS = MetricDefinition(
+        name="metaforge_kafka_dead_letters_total",
+        type="counter",
+        description="Total dead letter messages",
+        labels=["topic", "consumer_group"],
+    )
+    KAFKA_REBALANCE_TOTAL = MetricDefinition(
+        name="metaforge_kafka_rebalance_total",
+        type="counter",
+        description="Total Kafka consumer rebalances",
+        labels=["consumer_group"],
+    )
+
+    # ── Class methods for grouped access ───────────────────────────────
+
     @classmethod
-    def all_gateway_metrics(cls) -> list[MetricDefinition]:
-        """Return every gateway metric definition."""
+    def all_metrics(cls) -> list[MetricDefinition]:
+        """Return every metric definition in the registry."""
+        return (
+            cls.gateway_metrics()
+            + cls.agent_metrics()
+            + cls.skill_metrics()
+            + cls.kafka_metrics()
+        )
+
+    @classmethod
+    def gateway_metrics(cls) -> list[MetricDefinition]:
+        """Return the 4 gateway metrics."""
         return [
             cls.GATEWAY_REQUEST_TOTAL,
             cls.GATEWAY_REQUEST_DURATION,
             cls.GATEWAY_WEBSOCKET_CONNECTIONS,
             cls.GATEWAY_ACTIVE_SESSIONS,
+        ]
+
+    # Keep backward-compatible alias
+    all_gateway_metrics = gateway_metrics
+
+    @classmethod
+    def agent_metrics(cls) -> list[MetricDefinition]:
+        """Return the 5 agent metrics."""
+        return [
+            cls.AGENT_EXECUTION_DURATION,
+            cls.AGENT_EXECUTION_TOTAL,
+            cls.AGENT_LLM_TOKENS_TOTAL,
+            cls.AGENT_LLM_COST_TOTAL,
+            cls.AGENT_LLM_REQUEST_DURATION,
+        ]
+
+    @classmethod
+    def skill_metrics(cls) -> list[MetricDefinition]:
+        """Return the 2 skill metrics."""
+        return [
+            cls.SKILL_EXECUTION_DURATION,
+            cls.SKILL_EXECUTION_TOTAL,
+        ]
+
+    @classmethod
+    def kafka_metrics(cls) -> list[MetricDefinition]:
+        """Return the 5 Kafka metrics."""
+        return [
+            cls.KAFKA_CONSUMER_LAG,
+            cls.KAFKA_MESSAGES_PRODUCED,
+            cls.KAFKA_MESSAGES_CONSUMED,
+            cls.KAFKA_DEAD_LETTERS,
+            cls.KAFKA_REBALANCE_TOTAL,
         ]
 
 
@@ -103,19 +231,13 @@ class MetricsRegistry:
 class MetricsCollector:
     """Collects metrics using an OTel MeterProvider (or no-op if unavailable).
 
-    Parameters
-    ----------
-    meter:
-        An ``opentelemetry.metrics.Meter`` instance.  When *None* every
-        recording method is a silent no-op, which lets callers use the
-        collector unconditionally.
+    All public recording methods are safe to call even when no OTel meter is
+    configured -- they simply become no-ops.
     """
 
     def __init__(self, meter: Any | None = None) -> None:
         self._meter = meter
         self._instruments: dict[str, Any] = {}
-
-    # -- instrument creation ------------------------------------------------
 
     def create_instruments(self, definitions: list[MetricDefinition]) -> None:
         """Create OTel instruments from *definitions*.  No-op if no meter."""
@@ -142,19 +264,13 @@ class MetricsCollector:
                     unit=defn.unit,
                 )
 
-    # -- convenience recorders ---------------------------------------------
+    # ── Gateway ────────────────────────────────────────────────────────
 
     def record_request(
-        self,
-        method: str,
-        endpoint: str,
-        status_code: int,
-        duration: float,
+        self, method: str, endpoint: str, status_code: int, duration: float
     ) -> None:
         """Record an HTTP request (counter + histogram)."""
-        counter = self._instruments.get(
-            MetricsRegistry.GATEWAY_REQUEST_TOTAL.name
-        )
+        counter = self._instruments.get(MetricsRegistry.GATEWAY_REQUEST_TOTAL.name)
         if counter is not None:
             counter.add(
                 1,
@@ -164,10 +280,7 @@ class MetricsCollector:
                     "status_code": str(status_code),
                 },
             )
-
-        histogram = self._instruments.get(
-            MetricsRegistry.GATEWAY_REQUEST_DURATION.name
-        )
+        histogram = self._instruments.get(MetricsRegistry.GATEWAY_REQUEST_DURATION.name)
         if histogram is not None:
             histogram.record(
                 duration,
@@ -176,16 +289,128 @@ class MetricsCollector:
 
     def set_websocket_connections(self, state: str, count: int) -> None:
         """Record the current number of WebSocket connections."""
-        gauge = self._instruments.get(
-            MetricsRegistry.GATEWAY_WEBSOCKET_CONNECTIONS.name
-        )
+        gauge = self._instruments.get(MetricsRegistry.GATEWAY_WEBSOCKET_CONNECTIONS.name)
         if gauge is not None:
             gauge.add(count, attributes={"state": state})
 
     def set_active_sessions(self, status: str, count: int) -> None:
         """Record the current number of active sessions."""
-        gauge = self._instruments.get(
-            MetricsRegistry.GATEWAY_ACTIVE_SESSIONS.name
-        )
+        gauge = self._instruments.get(MetricsRegistry.GATEWAY_ACTIVE_SESSIONS.name)
         if gauge is not None:
             gauge.add(count, attributes={"status": status})
+
+    # ── Agent ──────────────────────────────────────────────────────────
+
+    def record_agent_execution(
+        self, agent_code: str, status: str, duration: float
+    ) -> None:
+        """Record an agent execution (counter + histogram)."""
+        counter = self._instruments.get(MetricsRegistry.AGENT_EXECUTION_TOTAL.name)
+        if counter is not None:
+            counter.add(1, attributes={"agent_code": agent_code, "status": status})
+        hist = self._instruments.get(MetricsRegistry.AGENT_EXECUTION_DURATION.name)
+        if hist is not None:
+            hist.record(duration, attributes={"agent_code": agent_code, "status": status})
+
+    def record_llm_tokens(
+        self,
+        agent_code: str,
+        provider: str,
+        model: str,
+        token_type: str,
+        count: int,
+    ) -> None:
+        """Record LLM token consumption."""
+        counter = self._instruments.get(MetricsRegistry.AGENT_LLM_TOKENS_TOTAL.name)
+        if counter is not None:
+            counter.add(
+                count,
+                attributes={
+                    "agent_code": agent_code,
+                    "llm_provider": provider,
+                    "llm_model": model,
+                    "token_type": token_type,
+                },
+            )
+
+    def record_llm_cost(
+        self, agent_code: str, provider: str, model: str, cost_usd: float
+    ) -> None:
+        """Record LLM cost in USD."""
+        counter = self._instruments.get(MetricsRegistry.AGENT_LLM_COST_TOTAL.name)
+        if counter is not None:
+            counter.add(
+                cost_usd,
+                attributes={
+                    "agent_code": agent_code,
+                    "llm_provider": provider,
+                    "llm_model": model,
+                },
+            )
+
+    def record_llm_request_duration(
+        self, agent_code: str, provider: str, model: str, duration: float
+    ) -> None:
+        """Record LLM request duration."""
+        hist = self._instruments.get(MetricsRegistry.AGENT_LLM_REQUEST_DURATION.name)
+        if hist is not None:
+            hist.record(
+                duration,
+                attributes={
+                    "agent_code": agent_code,
+                    "llm_provider": provider,
+                    "llm_model": model,
+                },
+            )
+
+    # ── Skill ──────────────────────────────────────────────────────────
+
+    def record_skill_execution(
+        self, skill_name: str, domain: str, status: str, duration: float
+    ) -> None:
+        """Record a skill execution (counter + histogram)."""
+        counter = self._instruments.get(MetricsRegistry.SKILL_EXECUTION_TOTAL.name)
+        if counter is not None:
+            counter.add(
+                1, attributes={"skill_name": skill_name, "domain": domain, "status": status}
+            )
+        hist = self._instruments.get(MetricsRegistry.SKILL_EXECUTION_DURATION.name)
+        if hist is not None:
+            hist.record(duration, attributes={"skill_name": skill_name, "domain": domain})
+
+    # ── Kafka ──────────────────────────────────────────────────────────
+
+    def set_consumer_lag(
+        self, group: str, topic: str, partition: str, lag: int
+    ) -> None:
+        """Set the current Kafka consumer lag for a partition."""
+        gauge = self._instruments.get(MetricsRegistry.KAFKA_CONSUMER_LAG.name)
+        if gauge is not None:
+            gauge.add(
+                lag,
+                attributes={"consumer_group": group, "topic": topic, "partition": partition},
+            )
+
+    def record_message_produced(self, topic: str) -> None:
+        """Record a Kafka message produced."""
+        counter = self._instruments.get(MetricsRegistry.KAFKA_MESSAGES_PRODUCED.name)
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic})
+
+    def record_message_consumed(self, topic: str, group: str) -> None:
+        """Record a Kafka message consumed."""
+        counter = self._instruments.get(MetricsRegistry.KAFKA_MESSAGES_CONSUMED.name)
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic, "consumer_group": group})
+
+    def record_dead_letter(self, topic: str, group: str) -> None:
+        """Record a Kafka dead letter message."""
+        counter = self._instruments.get(MetricsRegistry.KAFKA_DEAD_LETTERS.name)
+        if counter is not None:
+            counter.add(1, attributes={"topic": topic, "consumer_group": group})
+
+    def record_rebalance(self, group: str) -> None:
+        """Record a Kafka consumer rebalance."""
+        counter = self._instruments.get(MetricsRegistry.KAFKA_REBALANCE_TOTAL.name)
+        if counter is not None:
+            counter.add(1, attributes={"consumer_group": group})
