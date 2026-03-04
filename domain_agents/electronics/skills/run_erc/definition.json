@@ -1,1 +1,21 @@
-{}
+{
+  "name": "run_erc",
+  "version": "0.1.0",
+  "domain": "electronics",
+  "agent": "electronics",
+  "description": "Runs Electrical Rules Check (ERC) on a KiCad schematic and returns categorised violations.",
+  "phase": 1,
+  "tools_required": [
+    {
+      "tool_id": "kicad.run_erc",
+      "capability": "erc_validation",
+      "required": true
+    }
+  ],
+  "input_schema": "schema.RunErcInput",
+  "output_schema": "schema.RunErcOutput",
+  "timeout_seconds": 120,
+  "retries": 1,
+  "idempotent": true,
+  "tags": ["erc", "schematic", "validation", "electronics", "kicad"]
+}
