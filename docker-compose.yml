@@ -6,6 +6,7 @@
 #   docker compose down -v                      # Teardown + remove volumes
 #
 # Services available after startup:
+#   Dashboard:    http://localhost:3000
 #   Gateway:      http://localhost:8000/health
 #   Neo4j:        http://localhost:7474  (bolt://localhost:7687)
 #   Temporal UI:  http://localhost:8080
@@ -34,6 +35,20 @@ services:
       kafka:
         condition: service_healthy
       temporal:
+        condition: service_healthy
+    networks:
+      - metaforge
+    restart: unless-stopped
+
+  # ── MetaForge Dashboard ──────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "${DASHBOARD_PORT:-3000}:80"
+    depends_on:
+      gateway:
         condition: service_healthy
     networks:
       - metaforge
