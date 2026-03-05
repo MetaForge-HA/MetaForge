@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -26,7 +28,7 @@ class DrcViolation(BaseModel):
 class RunDrcInput(BaseModel):
     """Input for the run_drc skill."""
 
-    artifact_id: str = Field(..., description="ID of the PCB artifact in the Digital Twin")
+    artifact_id: UUID = Field(..., description="ID of the PCB artifact in the Digital Twin")
     pcb_file: str = Field(
         ..., min_length=1, description="Path to the KiCad PCB file (.kicad_pcb)"
     )
@@ -39,7 +41,7 @@ class RunDrcInput(BaseModel):
 class RunDrcOutput(BaseModel):
     """Output from the run_drc skill."""
 
-    artifact_id: str = Field(..., description="ID of the analyzed artifact")
+    artifact_id: UUID = Field(..., description="ID of the analyzed artifact")
     pcb_file: str = Field(..., description="Path to the PCB file that was checked")
     violations: list[DrcViolation] = Field(
         default_factory=list, description="List of DRC violations found"

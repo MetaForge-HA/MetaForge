@@ -141,7 +141,7 @@ class MechanicalAgent:
 
         # Build skill input from request parameters
         skill_input_data: dict[str, Any] = {
-            "artifact_id": str(request.artifact_id),
+            "artifact_id": request.artifact_id,
             "mesh_file_path": request.parameters.get("mesh_file_path", ""),
             "load_case": request.parameters.get("load_case", "default"),
             "constraints": request.parameters.get("constraints", []),
@@ -236,7 +236,7 @@ class MechanicalAgent:
             )
 
         skill_input = CheckToleranceInput(
-            artifact_id=str(request.artifact_id),
+            artifact_id=request.artifact_id,
             tolerances=tolerances,
             manufacturing_process=process,
             material=request.parameters.get("material", "aluminum_6061"),
@@ -291,7 +291,7 @@ class MechanicalAgent:
             )
 
         skill_input = GenerateMeshInput(
-            artifact_id=str(request.artifact_id),
+            artifact_id=request.artifact_id,
             cad_file=cad_file,
             element_size=request.parameters.get("element_size", 1.0),
             algorithm=request.parameters.get("algorithm", "netgen"),

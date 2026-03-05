@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 class RunFeaInput(BaseModel):
     """Input for the run_fea skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID for the mechanical design")
+    artifact_id: UUID = Field(..., description="Twin artifact ID for the mechanical design")
     mesh_file: str = Field(
         ..., min_length=1, description="Path to the FEA mesh file (.inp/.unv)"
     )
@@ -29,7 +30,7 @@ class RunFeaInput(BaseModel):
 class RunFeaOutput(BaseModel):
     """Output from the run_fea skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID")
+    artifact_id: UUID = Field(..., description="Twin artifact ID")
     max_stress_mpa: float = Field(
         ..., ge=0, description="Maximum von Mises stress in MPa"
     )

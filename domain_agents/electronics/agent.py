@@ -146,7 +146,7 @@ class ElectronicsAgent:
 
         ctx = self._create_skill_context(request.branch)
         skill_input = RunErcInput(
-            artifact_id=str(request.artifact_id),
+            artifact_id=request.artifact_id,
             schematic_file=schematic_file,
             severity_filter=request.parameters.get("severity_filter", "all"),
         )
@@ -202,7 +202,7 @@ class ElectronicsAgent:
 
         ctx = self._create_skill_context(request.branch)
         skill_input = RunDrcInput(
-            artifact_id=str(request.artifact_id),
+            artifact_id=request.artifact_id,
             pcb_file=pcb_file,
             severity_filter=request.parameters.get("severity_filter", "all"),
         )

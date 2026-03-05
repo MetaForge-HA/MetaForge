@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 class RunSpiceInput(BaseModel):
     """Input for the run_spice skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID for the circuit design")
+    artifact_id: UUID = Field(..., description="Twin artifact ID for the circuit design")
     netlist_path: str = Field(
         ..., min_length=1, description="Path to the SPICE netlist file (.cir/.spice)"
     )
@@ -25,7 +26,7 @@ class RunSpiceInput(BaseModel):
 class RunSpiceOutput(BaseModel):
     """Output from the run_spice skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID")
+    artifact_id: UUID = Field(..., description="Twin artifact ID")
     results: dict[str, Any] = Field(
         default_factory=dict, description="Simulation results keyed by node/signal name"
     )

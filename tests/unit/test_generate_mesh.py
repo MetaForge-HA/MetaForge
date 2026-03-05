@@ -63,7 +63,7 @@ def mock_context() -> SkillContext:
 @pytest.fixture()
 def sample_input() -> GenerateMeshInput:
     return GenerateMeshInput(
-        artifact_id="artifact-mesh-1",
+        artifact_id=uuid4(),
         cad_file="/project/cad/bracket.step",
         element_size=1.0,
         algorithm="netgen",
@@ -86,7 +86,7 @@ class TestMeshModels:
 
     def test_generate_mesh_input_defaults(self) -> None:
         inp = GenerateMeshInput(
-            artifact_id="art-1",
+            artifact_id=uuid4(),
             cad_file="/path/to/model.step",
         )
         assert inp.element_size == 1.0
@@ -98,7 +98,7 @@ class TestMeshModels:
 
     def test_generate_mesh_input_custom(self) -> None:
         inp = GenerateMeshInput(
-            artifact_id="art-2",
+            artifact_id=uuid4(),
             cad_file="/path/to/model.stl",
             element_size=0.5,
             algorithm="gmsh",
@@ -116,7 +116,7 @@ class TestMeshModels:
 
     def test_generate_mesh_output_model(self) -> None:
         output = GenerateMeshOutput(
-            artifact_id="art-1",
+            artifact_id=uuid4(),
             mesh_file="/tmp/mesh.inp",
             num_nodes=1000,
             num_elements=5000,
@@ -138,7 +138,7 @@ class TestMeshModels:
     def test_invalid_algorithm_not_blocked_by_schema(self) -> None:
         """Schema doesn't validate algorithm enum -- handler does that."""
         inp = GenerateMeshInput(
-            artifact_id="art-1",
+            artifact_id=uuid4(),
             cad_file="/path/to/model.step",
             algorithm="invalid_algo",
         )
@@ -215,7 +215,7 @@ class TestGenerateMeshHandler:
     ) -> None:
         """Custom element size is passed through to the output."""
         inp = GenerateMeshInput(
-            artifact_id="art-custom",
+            artifact_id=uuid4(),
             cad_file="/project/cad/bracket.step",
             element_size=0.25,
         )
@@ -235,7 +235,7 @@ class TestGenerateMeshHandler:
     ) -> None:
         """Gmsh algorithm should be accepted and passed through."""
         inp = GenerateMeshInput(
-            artifact_id="art-gmsh",
+            artifact_id=uuid4(),
             cad_file="/project/cad/bracket.step",
             algorithm="gmsh",
         )
@@ -255,7 +255,7 @@ class TestGenerateMeshHandler:
     ) -> None:
         """Missing CAD file extension should raise ValueError."""
         inp = GenerateMeshInput(
-            artifact_id="art-bad",
+            artifact_id=uuid4(),
             cad_file="/project/cad/bracket.iges",
         )
         mock_context.twin.get_artifact.return_value = {"id": inp.artifact_id}
@@ -273,7 +273,7 @@ class TestGenerateMeshHandler:
     ) -> None:
         """Unsupported output format should raise ValueError."""
         inp = GenerateMeshInput(
-            artifact_id="art-fmt",
+            artifact_id=uuid4(),
             cad_file="/project/cad/bracket.step",
             output_format="vtk",
         )

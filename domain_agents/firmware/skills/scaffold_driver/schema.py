@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 class ScaffoldDriverInput(BaseModel):
     """Input for the scaffold_driver skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID for the firmware project")
+    artifact_id: UUID = Field(..., description="Twin artifact ID for the firmware project")
     peripheral_type: str = Field(
         ...,
         min_length=1,
@@ -27,7 +28,7 @@ class ScaffoldDriverInput(BaseModel):
 class ScaffoldDriverOutput(BaseModel):
     """Output from the scaffold_driver skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID")
+    artifact_id: UUID = Field(..., description="Twin artifact ID")
     driver_files: list[str] = Field(
         default_factory=list, description="List of generated driver file paths"
     )

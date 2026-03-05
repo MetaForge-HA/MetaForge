@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +20,7 @@ class MeshQualityMetrics(BaseModel):
 class GenerateMeshInput(BaseModel):
     """Input for the generate_mesh skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID for the CAD model")
+    artifact_id: UUID = Field(..., description="Twin artifact ID for the CAD model")
     cad_file: str = Field(..., min_length=1, description="Path to input CAD file (STEP/STL/BREP)")
     element_size: float = Field(
         default=1.0, gt=0, description="Target element size in mm"
@@ -41,7 +42,7 @@ class GenerateMeshInput(BaseModel):
 class GenerateMeshOutput(BaseModel):
     """Output from the generate_mesh skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID")
+    artifact_id: UUID = Field(..., description="Twin artifact ID")
     mesh_file: str = Field(..., description="Path to generated mesh file")
     num_nodes: int = Field(..., ge=0, description="Number of mesh nodes")
     num_elements: int = Field(..., ge=0, description="Number of mesh elements")
