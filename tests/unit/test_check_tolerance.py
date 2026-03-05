@@ -66,7 +66,7 @@ def fdm_process() -> ManufacturingProcess:
 def passing_input(cnc_process: ManufacturingProcess) -> CheckToleranceInput:
     """Input where all tolerances should pass with CNC milling."""
     return CheckToleranceInput(
-        artifact_id="artifact-123",
+        artifact_id=uuid4(),
         tolerances=[
             ToleranceSpec(
                 dimension_id="D1",
@@ -93,7 +93,7 @@ def passing_input(cnc_process: ManufacturingProcess) -> CheckToleranceInput:
 def tight_input(cnc_process: ManufacturingProcess) -> CheckToleranceInput:
     """Input where tolerance is tighter than process capability."""
     return CheckToleranceInput(
-        artifact_id="artifact-456",
+        artifact_id=uuid4(),
         tolerances=[
             ToleranceSpec(
                 dimension_id="D1",
@@ -137,7 +137,7 @@ class TestToleranceModels:
         self, cnc_process: ManufacturingProcess
     ) -> None:
         inp = CheckToleranceInput(
-            artifact_id="art-1",
+            artifact_id=uuid4(),
             tolerances=[],
             manufacturing_process=cnc_process,
         )
@@ -147,7 +147,7 @@ class TestToleranceModels:
 
     def test_check_tolerance_output_model(self) -> None:
         output = CheckToleranceOutput(
-            artifact_id="art-1",
+            artifact_id=uuid4(),
             process_type="cnc_milling",
             total_dimensions_checked=1,
             passed=1,
@@ -257,7 +257,7 @@ class TestCheckToleranceHandler:
         # CNC achievable = 0.05mm, process_sigma = 0.05/3 = 0.01667
         # For Cp = 1.2 (marginal): tol_range = 1.2 * 6 * 0.01667 = 0.12
         inp = CheckToleranceInput(
-            artifact_id="art-marginal",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -286,7 +286,7 @@ class TestCheckToleranceHandler:
     ) -> None:
         """Feature smaller than min_feature_size should generate violation."""
         inp = CheckToleranceInput(
-            artifact_id="art-small",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -316,7 +316,7 @@ class TestCheckToleranceHandler:
     ) -> None:
         """Mix of passing and failing tolerances."""
         inp = CheckToleranceInput(
-            artifact_id="art-mixed",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -354,7 +354,7 @@ class TestCheckToleranceHandler:
         # achievable = 0.05, sigma = 0.05/3
         # tol_range = 0.2, Cp = 0.2 / (6 * 0.05/3) = 0.2 / 0.1 = 2.0
         inp = CheckToleranceInput(
-            artifact_id="art-cp",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -394,7 +394,7 @@ class TestCheckToleranceHandler:
     ) -> None:
         """Warnings but no failures should yield 'marginal' overall."""
         inp = CheckToleranceInput(
-            artifact_id="art-marg",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -466,7 +466,7 @@ class TestCheckToleranceHandler:
     ) -> None:
         """Empty tolerances list should produce pass with zero dimensions."""
         inp = CheckToleranceInput(
-            artifact_id="art-empty",
+            artifact_id=uuid4(),
             tolerances=[],
             manufacturing_process=cnc_process,
         )
@@ -580,7 +580,7 @@ class TestCheckToleranceStackUp:
         # 0.3464 / 0.6 = 57.7% < 75% => no warning
         # Need tolerances closer to worst-case to trigger
         inp = CheckToleranceInput(
-            artifact_id="art-stack",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -623,7 +623,7 @@ class TestCheckToleranceStackUp:
         # WC = 0.51
         # 0.5001 / 0.51 = 98% > 75% => warning triggered
         inp = CheckToleranceInput(
-            artifact_id="art-stack-warn",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",
@@ -661,7 +661,7 @@ class TestCheckToleranceStackUp:
     ) -> None:
         """Stack-up check should not run when check_stack_up=False."""
         inp = CheckToleranceInput(
-            artifact_id="art-no-stack",
+            artifact_id=uuid4(),
             tolerances=[
                 ToleranceSpec(
                     dimension_id="D1",

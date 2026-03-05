@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 class RunCfdInput(BaseModel):
     """Input for the run_cfd skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID for the mechanical design")
+    artifact_id: UUID = Field(..., description="Twin artifact ID for the mechanical design")
     geometry_file: str = Field(
         ..., min_length=1, description="Path to the geometry file (STEP/STL)"
     )
@@ -30,7 +31,7 @@ class RunCfdInput(BaseModel):
 class RunCfdOutput(BaseModel):
     """Output from the run_cfd skill."""
 
-    artifact_id: str = Field(..., description="Twin artifact ID")
+    artifact_id: UUID = Field(..., description="Twin artifact ID")
     max_velocity_ms: float = Field(
         ..., ge=0, description="Maximum fluid velocity in m/s"
     )

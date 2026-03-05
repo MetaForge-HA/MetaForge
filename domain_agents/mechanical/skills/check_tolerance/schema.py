@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -48,7 +50,7 @@ class ManufacturingProcess(BaseModel):
 class CheckToleranceInput(BaseModel):
     """Input for the check_tolerance skill."""
 
-    artifact_id: str = Field(..., description="ID of the artifact in the Digital Twin")
+    artifact_id: UUID = Field(..., description="ID of the artifact in the Digital Twin")
     tolerances: list[ToleranceSpec] = Field(
         default_factory=list, description="List of tolerance specifications to check"
     )
@@ -104,7 +106,7 @@ class ToleranceResult(BaseModel):
 class CheckToleranceOutput(BaseModel):
     """Output from the check_tolerance skill."""
 
-    artifact_id: str = Field(..., description="ID of the analyzed artifact")
+    artifact_id: UUID = Field(..., description="ID of the analyzed artifact")
     process_type: str = Field(..., description="Manufacturing process used for analysis")
     total_dimensions_checked: int = Field(
         ..., ge=0, description="Number of dimensions checked"
