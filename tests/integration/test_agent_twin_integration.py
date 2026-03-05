@@ -64,12 +64,9 @@ class TestAgentReadsArtifact:
     async def test_ee_agent_reads_correct_artifact(
         self, twin: InMemoryTwinAPI, mcp_with_tools: InMemoryMcpBridge, ee_artifact: Artifact
     ):
-        """EE agent finds the artifact at the agent level (UUID lookup).
+        """EE agent reads artifact by UUID and runs the ERC skill successfully.
 
-        NOTE: The skill handler then re-checks the artifact by string ID,
-        which fails in InMemoryTwinAPI (string != UUID key). This is a known
-        integration gap — the agent-level lookup works, but the skill-level
-        precondition check fails because RunErcInput.artifact_id is str.
+        The str/UUID mismatch was fixed — all skill schemas now use UUID.
         """
         agent = ElectronicsAgent(twin=twin, mcp=mcp_with_tools)
         result = await agent.run_task(
@@ -79,11 +76,9 @@ class TestAgentReadsArtifact:
                 parameters={"schematic_file": "eda/kicad/main.kicad_sch"},
             )
         )
-        # Agent found the artifact (no "not found on branch" error from agent level)
         assert result.artifact_id == ee_artifact.id
-        assert not any("not found on branch" in e for e in result.errors)
-        # Skill precondition fails due to str/UUID mismatch — documents the gap
-        assert any("not found in Twin" in e for e in result.errors)
+        assert result.success is True
+        assert len(result.errors) == 0
 
     async def test_twin_state_persists_across_agent_reads(
         self, twin: InMemoryTwinAPI, mcp_with_tools: InMemoryMcpBridge, mech_artifact: Artifact
