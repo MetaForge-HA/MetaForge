@@ -17,25 +17,144 @@ from fastapi.middleware.cors import CORSMiddleware
 from api_gateway.assistant.routes import router as assistant_router
 from api_gateway.chat.routes import router as chat_router
 from api_gateway.health import health_router
+from domain_agents.electronics.agent import ElectronicsAgent
+from domain_agents.mechanical.agent import MechanicalAgent
 from observability.middleware import ObservabilityMiddleware
 from observability.tracing import get_tracer
+from orchestrator.dependency_engine import DependencyGraph
+from orchestrator.event_bus.subscribers import create_default_bus
+from orchestrator.scheduler import InMemoryScheduler
+from orchestrator.workflow_dag import (
+    InMemoryWorkflowEngine,
+    WorkflowDefinition,
+    WorkflowStep,
+)
+from skill_registry.mcp_bridge import InMemoryMcpBridge
+from twin_core.api import InMemoryTwinAPI
 
 logger = structlog.get_logger(__name__)
 tracer = get_tracer("api_gateway.server")
+
+# ---------------------------------------------------------------------------
+# Workflow definitions registry
+# ---------------------------------------------------------------------------
+
+ACTION_WORKFLOWS: dict[str, WorkflowDefinition] = {
+    "validate_stress": WorkflowDefinition(
+        name="validate_stress",
+        steps=[
+            WorkflowStep(step_id="stress", agent_code="MECH", task_type="validate_stress"),
+        ],
+    ),
+    "generate_mesh": WorkflowDefinition(
+        name="generate_mesh",
+        steps=[
+            WorkflowStep(step_id="mesh", agent_code="MECH", task_type="generate_mesh"),
+        ],
+    ),
+    "check_tolerances": WorkflowDefinition(
+        name="check_tolerances",
+        steps=[
+            WorkflowStep(
+                step_id="tolerances", agent_code="MECH", task_type="check_tolerances"
+            ),
+        ],
+    ),
+    "run_erc": WorkflowDefinition(
+        name="run_erc",
+        steps=[
+            WorkflowStep(step_id="erc", agent_code="EE", task_type="run_erc"),
+        ],
+    ),
+    "run_drc": WorkflowDefinition(
+        name="run_drc",
+        steps=[
+            WorkflowStep(step_id="drc", agent_code="EE", task_type="run_drc"),
+        ],
+    ),
+    "full_validation": WorkflowDefinition(
+        name="full_validation",
+        steps=[
+            WorkflowStep(step_id="stress", agent_code="MECH", task_type="validate_stress"),
+            WorkflowStep(
+                step_id="erc",
+                agent_code="EE",
+                task_type="run_erc",
+            ),
+        ],
+    ),
+}
+
+
+async def _init_orchestrator(app: FastAPI) -> None:
+    """Wire up orchestrator subsystems and store on app.state."""
+    # Skip if test-injected components are already present
+    if hasattr(app.state, "workflow_engine") and hasattr(app.state, "scheduler"):
+        logger.info("orchestrator_skip_init", reason="test-injected")
+        if not hasattr(app.state, "action_workflows"):
+            app.state.action_workflows = ACTION_WORKFLOWS
+        return
+
+    workflow_engine = InMemoryWorkflowEngine.create()
+    twin = InMemoryTwinAPI.create()
+    mcp = InMemoryMcpBridge()
+    event_bus = create_default_bus(workflow_engine)
+
+    # Register all workflow definitions
+    for defn in ACTION_WORKFLOWS.values():
+        await workflow_engine.register_workflow(defn)
+
+    # Create agents
+    mech_agent = MechanicalAgent(twin=twin, mcp=mcp)
+    ee_agent = ElectronicsAgent(twin=twin, mcp=mcp)
+
+    # Build a dependency graph from the full_validation workflow (most complex)
+    # For single-step workflows the dep_graph is optional
+    dep_graph = DependencyGraph(ACTION_WORKFLOWS["full_validation"])
+    dep_graph.validate()
+
+    scheduler = InMemoryScheduler(
+        workflow_engine=workflow_engine,
+        event_bus=event_bus,
+        dependency_graph=dep_graph,
+        max_concurrency=4,
+    )
+    scheduler.register_agent("MECH", mech_agent)
+    scheduler.register_agent("EE", ee_agent)
+    await scheduler.start()
+
+    # Store on app.state for route access
+    app.state.workflow_engine = workflow_engine
+    app.state.scheduler = scheduler
+    app.state.twin = twin
+    app.state.mcp = mcp
+    app.state.event_bus = event_bus
+    app.state.action_workflows = ACTION_WORKFLOWS
+
+    logger.info(
+        "orchestrator_initialized",
+        workflows=list(ACTION_WORKFLOWS.keys()),
+        agents=["MECH", "EE"],
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown lifecycle handler."""
     logger.info("gateway_starting", version="0.1.0")
+    await _init_orchestrator(app)
     yield
     logger.info("gateway_stopping")
+    if hasattr(app.state, "scheduler"):
+        await app.state.scheduler.stop()
 
 
 def create_app(
     *,
     cors_origins: list[str] | None = None,
     collector: Any | None = None,
+    workflow_engine: Any | None = None,
+    scheduler: Any | None = None,
 ) -> FastAPI:
     """Create and configure the MetaForge Gateway FastAPI application.
 
@@ -45,6 +164,10 @@ def create_app(
         Allowed CORS origins.  Defaults to ``["*"]`` for development.
     collector:
         Optional ``MetricsCollector`` for the observability middleware.
+    workflow_engine:
+        Optional pre-built workflow engine (for testing).
+    scheduler:
+        Optional pre-built scheduler (for testing).
     """
     app = FastAPI(
         title="MetaForge Gateway",
@@ -52,6 +175,12 @@ def create_app(
         description="HTTP/WebSocket front door for the MetaForge platform",
         lifespan=lifespan,
     )
+
+    # Store test-injected components (lifespan will skip init if present)
+    if workflow_engine is not None:
+        app.state.workflow_engine = workflow_engine
+    if scheduler is not None:
+        app.state.scheduler = scheduler
 
     # -- CORS --------------------------------------------------------------
     origins = cors_origins if cors_origins is not None else ["*"]
