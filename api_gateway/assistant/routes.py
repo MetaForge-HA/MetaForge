@@ -13,7 +13,7 @@ import asyncio
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from api_gateway.assistant.approval import ApprovalWorkflow
@@ -23,6 +23,7 @@ from api_gateway.assistant.schemas import (
     AssistantResponse,
     DesignChangeProposal,
     ProposalListResponse,
+    RunStatusResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -42,11 +43,11 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
 
 @router.post("/request", response_model=AssistantResponse)
-async def submit_request(body: AssistantRequest) -> AssistantResponse:
+async def submit_request(body: AssistantRequest, request: Request) -> AssistantResponse:
     """Submit a request to an agent via the orchestrator.
 
-    This is a placeholder that acknowledges the request.  The real
-    implementation will forward to the Orchestrator / Temporal workflow.
+    Looks up the workflow definition for ``body.action``, creates a
+    WorkflowRun, and dispatches it through the Scheduler.
     """
     logger.info(
         "assistant_request",
@@ -54,14 +55,102 @@ async def submit_request(body: AssistantRequest) -> AssistantResponse:
         target_id=str(body.target_id),
         session_id=str(body.session_id),
     )
-    return AssistantResponse(
-        request_id=uuid4(),
-        status="accepted",
-        result={
+
+    # Resolve orchestrator components from app.state
+    action_workflows: dict = getattr(request.app.state, "action_workflows", {})
+    workflow_engine = getattr(request.app.state, "workflow_engine", None)
+    scheduler = getattr(request.app.state, "scheduler", None)
+
+    if workflow_engine is None or scheduler is None:
+        # Orchestrator not wired — fall back to placeholder
+        return AssistantResponse(
+            request_id=uuid4(),
+            status="accepted",
+            result={
+                "action": body.action,
+                "target_id": str(body.target_id),
+                "session_id": str(body.session_id),
+            },
+        )
+
+    # Look up workflow definition by action name
+    defn = action_workflows.get(body.action)
+    if defn is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action: '{body.action}'. "
+            f"Available: {', '.join(sorted(action_workflows.keys()))}",
+        )
+
+    # Inject artifact_id and parameters into each step
+    for step in defn.steps:
+        step.parameters = {
+            **step.parameters,
+            "artifact_id": str(body.target_id),
+            **body.parameters,
+        }
+
+    # Build dependency graph for this specific workflow
+    from orchestrator.dependency_engine import DependencyGraph
+
+    dep_graph = DependencyGraph(defn)
+    dep_graph.validate()
+    scheduler._dep_graph = dep_graph
+
+    # Start the workflow run
+    run = await workflow_engine.start_run(
+        workflow_id=defn.id,
+        branch=body.parameters.get("branch", "main"),
+        metadata={
             "action": body.action,
             "target_id": str(body.target_id),
             "session_id": str(body.session_id),
         },
+    )
+
+    # Schedule all initially-ready steps
+    await scheduler.execute_run(run)
+
+    return AssistantResponse(
+        request_id=uuid4(),
+        status="running",
+        result={
+            "run_id": run.id,
+            "action": body.action,
+            "target_id": str(body.target_id),
+            "session_id": str(body.session_id),
+        },
+    )
+
+
+@router.get("/request/{run_id}", response_model=RunStatusResponse)
+async def get_run_status(run_id: str, request: Request) -> RunStatusResponse:
+    """Poll the status of a workflow run."""
+    workflow_engine = getattr(request.app.state, "workflow_engine", None)
+    if workflow_engine is None:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+
+    run = await workflow_engine.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    steps = {}
+    for step_id, sr in run.step_results.items():
+        steps[step_id] = {
+            "status": sr.status,
+            "agent_code": sr.agent_code,
+            "task_type": sr.task_type,
+            "result": sr.task_result,
+            "error": sr.error,
+            "started_at": sr.started_at,
+            "completed_at": sr.completed_at,
+        }
+
+    return RunStatusResponse(
+        run_id=run.id,
+        status=run.status,
+        steps=steps,
+        completed_at=run.completed_at,
     )
 
 

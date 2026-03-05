@@ -186,6 +186,21 @@ class WebSocketEvent(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class RunStatusResponse(BaseModel):
+    """Response from ``GET /api/v1/assistant/request/{run_id}``."""
+
+    run_id: str = Field(description="Workflow run identifier")
+    status: str = Field(description="Run status: pending, running, completed, failed")
+    steps: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-step status and results",
+    )
+    completed_at: str | None = Field(
+        default=None,
+        description="ISO timestamp when the run completed",
+    )
+
+
 class ProposalListResponse(BaseModel):
     """Paginated list of design-change proposals."""
 
