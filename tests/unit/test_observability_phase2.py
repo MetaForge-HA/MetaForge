@@ -96,9 +96,10 @@ class TestTempoConfig:
         data = _load_yaml(_OBS_DIR / "tempo.yaml")
         assert "storage" in data
 
-    def test_tempo_has_compactor(self) -> None:
+    def test_tempo_handles_compaction(self) -> None:
+        """Compaction is automatic in latest Tempo — no compactor block needed."""
         data = _load_yaml(_OBS_DIR / "tempo.yaml")
-        assert "compactor" in data
+        assert "storage" in data
 
 
 class TestLokiConfig:
@@ -147,7 +148,7 @@ class TestOtelCollectorConfig:
 
     def test_otel_collector_has_loki_exporter(self) -> None:
         data = _load_yaml(_OBS_DIR / "otel-collector-config.yaml")
-        assert "loki" in data["exporters"]
+        assert "otlphttp/loki" in data["exporters"]
 
     def test_otel_collector_has_tempo_exporter(self) -> None:
         data = _load_yaml(_OBS_DIR / "otel-collector-config.yaml")
@@ -161,7 +162,7 @@ class TestOtelCollectorConfig:
     def test_otel_logs_pipeline_includes_loki(self) -> None:
         data = _load_yaml(_OBS_DIR / "otel-collector-config.yaml")
         exporters = data["service"]["pipelines"]["logs"]["exporters"]
-        assert "loki" in exporters
+        assert "otlphttp/loki" in exporters
 
 
 class TestGrafanaDatasources:
