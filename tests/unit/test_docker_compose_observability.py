@@ -169,10 +169,11 @@ class TestPrometheusConfig:
             "prometheus.yml must scrape otel-collector"
         )
 
-    def test_prometheus_scrapes_gateway(self) -> None:
+    def test_prometheus_scrapes_gateway_via_otel_collector(self) -> None:
+        """Gateway metrics flow via OTLP → OTel Collector → Prometheus exporter on :8889."""
         text = _load_yaml_text(PROMETHEUS_CONFIG)
-        assert "metaforge-gateway" in text, (
-            "prometheus.yml must scrape metaforge-gateway"
+        assert "otel-collector:8889" in text, (
+            "prometheus.yml must scrape otel-collector:8889 (gateway metrics arrive via OTLP)"
         )
 
 

@@ -29,6 +29,7 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - TEMPORAL_HOST=temporal:7233
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OCCT_CONVERTER_URL=http://occt-converter:8100
     depends_on:
       neo4j:
         condition: service_healthy
@@ -36,6 +37,26 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      occt-converter:
+        condition: service_healthy
+    networks:
+      - metaforge
+    restart: unless-stopped
+
+  # ── OCCT Converter (STEP/IGES → GLB microservice) ──────────────
+  occt-converter:
+    build:
+      context: ./tools/occt-converter
+      dockerfile: Dockerfile
+    image: metaforge-occt:latest
+    ports:
+      - "${OCCT_PORT:-8100}:8100"
+    healthcheck:
+      test: ["CMD", "/opt/conda/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - metaforge
     restart: unless-stopped
