@@ -221,7 +221,7 @@ class TestMetricsCollectorWithMeter:
     def test_record_request_calls_counter_and_histogram(
         self, collector: MetricsCollector
     ) -> None:
-        collector.record_request("POST", "/api/v1/chat", 201, 0.123)
+        collector.record_request("POST", "/v1/chat", 201, 0.123)
         counter = collector._instruments[
             MetricsRegistry.GATEWAY_REQUEST_TOTAL.name
         ]
@@ -229,7 +229,7 @@ class TestMetricsCollectorWithMeter:
             1,
             attributes={
                 "method": "POST",
-                "endpoint": "/api/v1/chat",
+                "endpoint": "/v1/chat",
                 "status_code": "201",
             },
         )
@@ -238,7 +238,7 @@ class TestMetricsCollectorWithMeter:
         ]
         histogram.record.assert_called_once_with(
             0.123,
-            attributes={"method": "POST", "endpoint": "/api/v1/chat"},
+            attributes={"method": "POST", "endpoint": "/v1/chat"},
         )
 
     def test_set_websocket_connections_calls_gauge(

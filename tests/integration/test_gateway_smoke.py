@@ -43,7 +43,7 @@ class TestAssistantEndpoints:
 
     async def test_submit_request_accepted(self, http_client: AsyncClient):
         resp = await http_client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "validate_stress",
                 "target_id": str(uuid4()),
@@ -59,13 +59,13 @@ class TestAssistantEndpoints:
     async def test_submit_request_validation_error(self, http_client: AsyncClient):
         # Missing required fields
         resp = await http_client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={"action": "validate_stress"},
         )
         assert resp.status_code == 422
 
     async def test_list_proposals_empty(self, http_client: AsyncClient):
-        resp = await http_client.get("/api/v1/assistant/proposals")
+        resp = await http_client.get("/v1/assistant/proposals")
         assert resp.status_code == 200
         data = resp.json()
         assert data["proposals"] == []
@@ -80,7 +80,7 @@ class TestAssistantEndpoints:
 class TestChatEndpoints:
 
     async def test_list_channels(self, http_client: AsyncClient):
-        resp = await http_client.get("/api/v1/chat/channels")
+        resp = await http_client.get("/v1/chat/channels")
         assert resp.status_code == 200
         data = resp.json()
         channels = data["channels"]
@@ -92,7 +92,7 @@ class TestChatEndpoints:
     async def test_create_thread_and_send_message(self, http_client: AsyncClient):
         # Create a thread
         create_resp = await http_client.post(
-            "/api/v1/chat/threads",
+            "/v1/chat/threads",
             json={
                 "scope_kind": "session",
                 "scope_entity_id": str(uuid4()),
@@ -109,7 +109,7 @@ class TestChatEndpoints:
 
         # Send a follow-up message
         msg_resp = await http_client.post(
-            f"/api/v1/chat/threads/{thread_id}/messages",
+            f"/v1/chat/threads/{thread_id}/messages",
             json={
                 "actor_id": "user-1",
                 "actor_kind": "human",
@@ -122,18 +122,18 @@ class TestChatEndpoints:
         assert msg["actor_kind"] == "human"
 
         # Retrieve the thread with all messages
-        get_resp = await http_client.get(f"/api/v1/chat/threads/{thread_id}")
+        get_resp = await http_client.get(f"/v1/chat/threads/{thread_id}")
         assert get_resp.status_code == 200
         full_thread = get_resp.json()
         assert len(full_thread["messages"]) == 2
 
     async def test_thread_not_found(self, http_client: AsyncClient):
-        resp = await http_client.get("/api/v1/chat/threads/nonexistent-id")
+        resp = await http_client.get("/v1/chat/threads/nonexistent-id")
         assert resp.status_code == 404
 
     async def test_invalid_scope_kind(self, http_client: AsyncClient):
         resp = await http_client.post(
-            "/api/v1/chat/threads",
+            "/v1/chat/threads",
             json={
                 "scope_kind": "nonexistent-scope",
                 "scope_entity_id": str(uuid4()),

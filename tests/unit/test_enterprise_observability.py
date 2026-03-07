@@ -71,11 +71,11 @@ class TestTenantMetricInjector:
 
     def test_inject_tenant_labels_adds_tenant_id(self) -> None:
         ctx = TenantContext(tenant_id="acme", tenant_name="Acme", plan="pro")
-        attrs = {"method": "GET", "endpoint": "/api/v1/twin"}
+        attrs = {"method": "GET", "endpoint": "/v1/twin"}
         result = TenantMetricInjector.inject_tenant_labels(attrs, ctx)
         assert result["tenant_id"] == "acme"
         assert result["method"] == "GET"
-        assert result["endpoint"] == "/api/v1/twin"
+        assert result["endpoint"] == "/v1/twin"
 
     def test_inject_does_not_mutate_original(self) -> None:
         ctx = TenantContext(tenant_id="t1", tenant_name="T", plan="free")

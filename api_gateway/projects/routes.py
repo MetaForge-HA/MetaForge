@@ -3,7 +3,7 @@
 Provides CRUD operations on hardware projects.  Uses an in-memory
 store seeded with demo data that matches the dashboard mock data.
 
-Endpoints live under ``/api/v1/projects``.
+Endpoints live under ``/v1/projects``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from observability.tracing import get_tracer
 logger = structlog.get_logger(__name__)
 tracer = get_tracer("api_gateway.projects")
 
-router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
+router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
 
 # ---------------------------------------------------------------------------

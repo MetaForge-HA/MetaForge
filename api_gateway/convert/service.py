@@ -89,7 +89,7 @@ class ConversionService:
                 logger.info("conversion_cache_hit", hash=file_hash, quality=quality)
                 return {
                     "hash": file_hash,
-                    "glb_url": f"/api/v1/convert/{file_hash}/glb?quality={quality}",
+                    "glb_url": f"/v1/convert/{file_hash}/glb?quality={quality}",
                     "metadata": cached_meta,
                     "cached": True,
                 }
@@ -114,7 +114,7 @@ class ConversionService:
 
             return {
                 "hash": file_hash,
-                "glb_url": f"/api/v1/convert/{file_hash}/glb?quality={quality}",
+                "glb_url": f"/v1/convert/{file_hash}/glb?quality={quality}",
                 "metadata": metadata,
                 "cached": False,
             }

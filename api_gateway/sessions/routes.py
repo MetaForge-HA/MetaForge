@@ -3,7 +3,7 @@
 Exposes workflow runs as dashboard-friendly "sessions" by mapping
 each ``WorkflowRun`` to a ``SessionResponse``.
 
-Endpoints live under ``/api/v1/sessions``.
+Endpoints live under ``/v1/sessions``.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from orchestrator.workflow_dag import StepStatus, WorkflowRun
 logger = structlog.get_logger(__name__)
 tracer = get_tracer("api_gateway.sessions")
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
+router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ from observability.tracing import get_tracer
 logger = structlog.get_logger(__name__)
 tracer = get_tracer("api_gateway.convert.routes")
 
-router = APIRouter(prefix="/api/v1/convert", tags=["convert"])
+router = APIRouter(prefix="/v1/convert", tags=["convert"])
 
 # Module-level service instance (initialised lazily so tests can replace it).
 _service: ConversionService | None = None
@@ -85,7 +85,7 @@ async def get_conversion(
 
     return ConversionResult(
         hash=file_hash,
-        glb_url=f"/api/v1/convert/{file_hash}/glb?quality={quality}",
+        glb_url=f"/v1/convert/{file_hash}/glb?quality={quality}",
         metadata=metadata,
         cached=True,
     )

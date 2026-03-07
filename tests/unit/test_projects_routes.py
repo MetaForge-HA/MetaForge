@@ -19,7 +19,7 @@ def client() -> TestClient:
 
 class TestListProjects:
     def test_returns_seeded_projects(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/projects")
+        resp = client.get("/v1/projects")
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 3
@@ -29,7 +29,7 @@ class TestListProjects:
         assert "Power Supply Module" in names
 
     def test_project_has_artifacts(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/projects")
+        resp = client.get("/v1/projects")
         body = resp.json()
         drone = next(p for p in body["projects"] if p["id"] == "proj-001")
         assert len(drone["artifacts"]) == 3
@@ -38,12 +38,12 @@ class TestListProjects:
 
 class TestGetProject:
     def test_get_by_id(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/projects/proj-002")
+        resp = client.get("/v1/projects/proj-002")
         assert resp.status_code == 200
         body = resp.json()
         assert body["name"] == "IoT Sensor Hub"
         assert body["status"] == "active"
 
     def test_404_for_unknown_id(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/projects/nonexistent")
+        resp = client.get("/v1/projects/nonexistent")
         assert resp.status_code == 404

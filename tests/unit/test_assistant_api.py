@@ -422,14 +422,14 @@ class TestApprovalWorkflow:
 
 
 # ===================================================================
-# Route tests — POST /api/v1/assistant/request
+# Route tests — POST /v1/assistant/request
 # ===================================================================
 
 
 class TestSubmitRequest:
     def test_submit_returns_accepted(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "validate_stress",
                 "target_id": str(uuid4()),
@@ -442,7 +442,7 @@ class TestSubmitRequest:
 
     def test_submit_includes_action_in_result(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "run_drc",
                 "target_id": str(uuid4()),
@@ -454,7 +454,7 @@ class TestSubmitRequest:
 
     def test_submit_empty_action_rejected(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "",
                 "target_id": str(uuid4()),
@@ -464,7 +464,7 @@ class TestSubmitRequest:
 
     def test_submit_invalid_target_id(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "run_drc",
                 "target_id": "not-a-uuid",
@@ -474,13 +474,13 @@ class TestSubmitRequest:
 
 
 # ===================================================================
-# Route tests — GET /api/v1/assistant/proposals
+# Route tests — GET /v1/assistant/proposals
 # ===================================================================
 
 
 class TestListProposals:
     def test_empty_proposals(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/assistant/proposals")
+        resp = client.get("/v1/assistant/proposals")
         assert resp.status_code == 200
         data = resp.json()
         assert data["proposals"] == []
@@ -489,7 +489,7 @@ class TestListProposals:
     @pytest.mark.asyncio
     async def test_proposals_after_creation(self, client: TestClient) -> None:
         await workflow.propose_change("mech", "test proposal", {}, [])
-        resp = client.get("/api/v1/assistant/proposals")
+        resp = client.get("/v1/assistant/proposals")
         data = resp.json()
         assert data["total"] == 1
         assert data["proposals"][0]["agent_code"] == "mech"
@@ -499,13 +499,13 @@ class TestListProposals:
         sid = uuid4()
         await workflow.propose_change("mech", "a", {}, [], session_id=sid)
         await workflow.propose_change("elec", "b", {}, [], session_id=uuid4())
-        resp = client.get(f"/api/v1/assistant/proposals?session_id={sid}")
+        resp = client.get(f"/v1/assistant/proposals?session_id={sid}")
         data = resp.json()
         assert data["total"] == 1
 
 
 # ===================================================================
-# Route tests — GET /api/v1/assistant/proposals/{change_id}
+# Route tests — GET /v1/assistant/proposals/{change_id}
 # ===================================================================
 
 
@@ -513,19 +513,19 @@ class TestGetProposal:
     @pytest.mark.asyncio
     async def test_get_existing_proposal(self, client: TestClient) -> None:
         proposal = await workflow.propose_change("mech", "test", {}, [])
-        resp = client.get(f"/api/v1/assistant/proposals/{proposal.change_id}")
+        resp = client.get(f"/v1/assistant/proposals/{proposal.change_id}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["agent_code"] == "mech"
 
     def test_get_nonexistent_proposal(self, client: TestClient) -> None:
-        resp = client.get(f"/api/v1/assistant/proposals/{uuid4()}")
+        resp = client.get(f"/v1/assistant/proposals/{uuid4()}")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Proposal not found"
 
 
 # ===================================================================
-# Route tests — POST /api/v1/assistant/proposals/{change_id}/decide
+# Route tests — POST /v1/assistant/proposals/{change_id}/decide
 # ===================================================================
 
 
@@ -534,7 +534,7 @@ class TestDecideProposal:
     async def test_approve_proposal(self, client: TestClient) -> None:
         proposal = await workflow.propose_change("mech", "test", {}, [])
         resp = client.post(
-            f"/api/v1/assistant/proposals/{proposal.change_id}/decide",
+            f"/v1/assistant/proposals/{proposal.change_id}/decide",
             json={
                 "change_id": str(proposal.change_id),
                 "decision": "approve",
@@ -551,7 +551,7 @@ class TestDecideProposal:
     async def test_reject_proposal(self, client: TestClient) -> None:
         proposal = await workflow.propose_change("mech", "test", {}, [])
         resp = client.post(
-            f"/api/v1/assistant/proposals/{proposal.change_id}/decide",
+            f"/v1/assistant/proposals/{proposal.change_id}/decide",
             json={
                 "change_id": str(proposal.change_id),
                 "decision": "reject",
@@ -566,7 +566,7 @@ class TestDecideProposal:
     def test_decide_nonexistent(self, client: TestClient) -> None:
         cid = uuid4()
         resp = client.post(
-            f"/api/v1/assistant/proposals/{cid}/decide",
+            f"/v1/assistant/proposals/{cid}/decide",
             json={
                 "change_id": str(cid),
                 "decision": "approve",
@@ -580,7 +580,7 @@ class TestDecideProposal:
     async def test_decide_invalid_decision(self, client: TestClient) -> None:
         proposal = await workflow.propose_change("mech", "test", {}, [])
         resp = client.post(
-            f"/api/v1/assistant/proposals/{proposal.change_id}/decide",
+            f"/v1/assistant/proposals/{proposal.change_id}/decide",
             json={
                 "change_id": str(proposal.change_id),
                 "decision": "maybe",
@@ -599,7 +599,7 @@ class TestDecideProposal:
 class TestWebSocket:
     def test_websocket_connect(self, client: TestClient) -> None:
         sid = str(uuid4())
-        with client.websocket_connect(f"/api/v1/assistant/ws/{sid}") as ws:
+        with client.websocket_connect(f"/v1/assistant/ws/{sid}") as ws:
             # Just verifying connection succeeds
             ws.send_text('{"type": "ping"}')
             # Close immediately — no events to receive

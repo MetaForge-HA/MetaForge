@@ -128,7 +128,7 @@ class TestObservabilityMiddleware:
     async def test_records_method_and_path(self, collector: MagicMock) -> None:
         mw = ObservabilityMiddleware(_simple_app(), collector=collector)
         await mw(
-            _make_http_scope("POST", "/api/v1/chat"),
+            _make_http_scope("POST", "/v1/chat"),
             _noop_receive,
             _noop_send,
         )
@@ -137,7 +137,7 @@ class TestObservabilityMiddleware:
             collector.record_request.call_args[0][1],
         )
         assert method == "POST"
-        assert path == "/api/v1/chat"
+        assert path == "/v1/chat"
 
     # -- non-HTTP scopes ---------------------------------------------------
 

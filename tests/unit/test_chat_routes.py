@@ -1,7 +1,7 @@
 """Unit tests for chat REST endpoints (MET-82).
 
 Uses FastAPI's TestClient to exercise every endpoint under
-``/api/v1/chat``.  The in-memory ``ChatStore`` is reset between tests
+``/v1/chat``.  The in-memory ``ChatStore`` is reset between tests
 so they remain independent.
 """
 
@@ -57,7 +57,7 @@ def _create_thread(
         payload["title"] = title
     if initial_message is not None:
         payload["initial_message"] = initial_message
-    resp = client.post("/api/v1/chat/threads", json=payload)
+    resp = client.post("/v1/chat/threads", json=payload)
     assert resp.status_code == 201
     return resp.json()
 
@@ -71,7 +71,7 @@ def _send_message(
     actor_kind: str = "user",
 ) -> dict:
     resp = client.post(
-        f"/api/v1/chat/threads/{thread_id}/messages",
+        f"/v1/chat/threads/{thread_id}/messages",
         json={
             "content": content,
             "actor_id": actor_id,
@@ -89,14 +89,14 @@ def _send_message(
 
 class TestListChannels:
     def test_returns_default_channels(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/channels")
+        resp = client.get("/v1/chat/channels")
         assert resp.status_code == 200
         data = resp.json()
         assert "channels" in data
         assert len(data["channels"]) == 5
 
     def test_channel_fields(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/channels")
+        resp = client.get("/v1/chat/channels")
         ch = resp.json()["channels"][0]
         assert "id" in ch
         assert "name" in ch
@@ -104,7 +104,7 @@ class TestListChannels:
         assert "created_at" in ch
 
     def test_channel_scope_kinds(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/channels")
+        resp = client.get("/v1/chat/channels")
         scope_kinds = {ch["scope_kind"] for ch in resp.json()["channels"]}
         expected = {"session", "approval", "bom-entry", "digital-twin-node", "project"}
         assert scope_kinds == expected
@@ -144,13 +144,13 @@ class TestCreateThread:
         data = _create_thread(client, scope_kind="approval")
         assert data["channel_id"]  # non-empty
         # Verify channel exists
-        channels_resp = client.get("/api/v1/chat/channels")
+        channels_resp = client.get("/v1/chat/channels")
         channel_ids = {ch["id"] for ch in channels_resp.json()["channels"]}
         assert data["channel_id"] in channel_ids
 
     def test_create_thread_invalid_scope(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/chat/threads",
+            "/v1/chat/threads",
             json={
                 "scope_kind": "nonexistent-scope",
                 "scope_entity_id": "entity-1",
@@ -161,7 +161,7 @@ class TestCreateThread:
 
     def test_create_thread_missing_required_field(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/chat/threads",
+            "/v1/chat/threads",
             json={"scope_kind": "session"},
         )
         assert resp.status_code == 422  # Pydantic validation error
@@ -175,21 +175,21 @@ class TestCreateThread:
 class TestGetThread:
     def test_get_existing_thread(self, client: TestClient) -> None:
         created = _create_thread(client)
-        resp = client.get(f"/api/v1/chat/threads/{created['id']}")
+        resp = client.get(f"/v1/chat/threads/{created['id']}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["id"] == created["id"]
         assert data["scope_kind"] == "session"
 
     def test_get_thread_not_found(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/threads/nonexistent-id")
+        resp = client.get("/v1/chat/threads/nonexistent-id")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Thread not found"
 
     def test_get_thread_includes_messages(self, client: TestClient) -> None:
         created = _create_thread(client, initial_message="msg-1")
         _send_message(client, created["id"], content="msg-2")
-        resp = client.get(f"/api/v1/chat/threads/{created['id']}")
+        resp = client.get(f"/v1/chat/threads/{created['id']}")
         data = resp.json()
         assert len(data["messages"]) == 2
         assert data["messages"][0]["content"] == "msg-1"
@@ -203,7 +203,7 @@ class TestGetThread:
 
 class TestListThreads:
     def test_empty_list(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/chat/threads")
+        resp = client.get("/v1/chat/threads")
         assert resp.status_code == 200
         data = resp.json()
         assert data["threads"] == []
@@ -213,7 +213,7 @@ class TestListThreads:
     def test_list_returns_created_threads(self, client: TestClient) -> None:
         _create_thread(client, scope_entity_id="e1")
         _create_thread(client, scope_entity_id="e2")
-        resp = client.get("/api/v1/chat/threads")
+        resp = client.get("/v1/chat/threads")
         data = resp.json()
         assert data["total"] == 2
         assert len(data["threads"]) == 2
@@ -221,7 +221,7 @@ class TestListThreads:
     def test_filter_by_scope_kind(self, client: TestClient) -> None:
         _create_thread(client, scope_kind="session", scope_entity_id="e1")
         _create_thread(client, scope_kind="approval", scope_entity_id="e2")
-        resp = client.get("/api/v1/chat/threads?scope_kind=approval")
+        resp = client.get("/v1/chat/threads?scope_kind=approval")
         data = resp.json()
         assert data["total"] == 1
         assert data["threads"][0]["scope_kind"] == "approval"
@@ -229,7 +229,7 @@ class TestListThreads:
     def test_filter_by_entity_id(self, client: TestClient) -> None:
         _create_thread(client, scope_entity_id="e1")
         _create_thread(client, scope_entity_id="e2")
-        resp = client.get("/api/v1/chat/threads?entity_id=e2")
+        resp = client.get("/v1/chat/threads?entity_id=e2")
         data = resp.json()
         assert data["total"] == 1
         assert data["threads"][0]["scope_entity_id"] == "e2"
@@ -238,7 +238,7 @@ class TestListThreads:
         t1 = _create_thread(client, scope_kind="session", scope_entity_id="e1")
         _create_thread(client, scope_kind="approval", scope_entity_id="e2")
         channel_id = t1["channel_id"]
-        resp = client.get(f"/api/v1/chat/threads?channel_id={channel_id}")
+        resp = client.get(f"/v1/chat/threads?channel_id={channel_id}")
         data = resp.json()
         assert data["total"] == 1
         assert data["threads"][0]["channel_id"] == channel_id
@@ -247,19 +247,19 @@ class TestListThreads:
         created = _create_thread(client)
         # Manually archive the thread via the store
         _module_store.threads[created["id"]].archived = True
-        resp = client.get("/api/v1/chat/threads")
+        resp = client.get("/v1/chat/threads")
         assert resp.json()["total"] == 0
 
     def test_include_archived(self, client: TestClient) -> None:
         created = _create_thread(client)
         _module_store.threads[created["id"]].archived = True
-        resp = client.get("/api/v1/chat/threads?include_archived=true")
+        resp = client.get("/v1/chat/threads?include_archived=true")
         assert resp.json()["total"] == 1
 
     def test_pagination(self, client: TestClient) -> None:
         for i in range(5):
             _create_thread(client, scope_entity_id=f"e{i}")
-        resp = client.get("/api/v1/chat/threads?page=1&per_page=2")
+        resp = client.get("/v1/chat/threads?page=1&per_page=2")
         data = resp.json()
         assert data["total"] == 5
         assert len(data["threads"]) == 2
@@ -269,21 +269,21 @@ class TestListThreads:
     def test_pagination_page_2(self, client: TestClient) -> None:
         for i in range(5):
             _create_thread(client, scope_entity_id=f"e{i}")
-        resp = client.get("/api/v1/chat/threads?page=2&per_page=2")
+        resp = client.get("/v1/chat/threads?page=2&per_page=2")
         data = resp.json()
         assert len(data["threads"]) == 2
 
     def test_pagination_last_page(self, client: TestClient) -> None:
         for i in range(5):
             _create_thread(client, scope_entity_id=f"e{i}")
-        resp = client.get("/api/v1/chat/threads?page=3&per_page=2")
+        resp = client.get("/v1/chat/threads?page=3&per_page=2")
         data = resp.json()
         assert len(data["threads"]) == 1
 
     def test_thread_summary_has_message_count(self, client: TestClient) -> None:
         created = _create_thread(client, initial_message="hi")
         _send_message(client, created["id"], content="reply")
-        resp = client.get("/api/v1/chat/threads")
+        resp = client.get("/v1/chat/threads")
         summary = resp.json()["threads"][0]
         assert summary["message_count"] == 2
 
@@ -304,7 +304,7 @@ class TestSendMessage:
 
     def test_send_message_thread_not_found(self, client: TestClient) -> None:
         resp = client.post(
-            "/api/v1/chat/threads/nonexistent/messages",
+            "/v1/chat/threads/nonexistent/messages",
             json={
                 "content": "hello",
                 "actor_id": "user-1",
@@ -316,7 +316,7 @@ class TestSendMessage:
     def test_send_message_with_graph_ref(self, client: TestClient) -> None:
         created = _create_thread(client)
         resp = client.post(
-            f"/api/v1/chat/threads/{created['id']}/messages",
+            f"/v1/chat/threads/{created['id']}/messages",
             json={
                 "content": "linked message",
                 "actor_id": "agent-1",
@@ -335,7 +335,7 @@ class TestSendMessage:
     def test_send_message_empty_content_rejected(self, client: TestClient) -> None:
         created = _create_thread(client)
         resp = client.post(
-            f"/api/v1/chat/threads/{created['id']}/messages",
+            f"/v1/chat/threads/{created['id']}/messages",
             json={
                 "content": "",
                 "actor_id": "user-1",
@@ -348,6 +348,6 @@ class TestSendMessage:
         created = _create_thread(client)
         original_ts = created["last_message_at"]
         _send_message(client, created["id"], content="new msg")
-        resp = client.get(f"/api/v1/chat/threads/{created['id']}")
+        resp = client.get(f"/v1/chat/threads/{created['id']}")
         updated_ts = resp.json()["last_message_at"]
         assert updated_ts >= original_ts

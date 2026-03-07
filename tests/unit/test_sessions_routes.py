@@ -36,7 +36,7 @@ def client(engine: InMemoryWorkflowEngine) -> TestClient:
 
 class TestListSessions:
     def test_empty_when_no_runs(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/sessions")
+        resp = client.get("/v1/sessions")
         assert resp.status_code == 200
         body = resp.json()
         assert body["sessions"] == []
@@ -54,7 +54,7 @@ class TestListSessions:
 
         app = create_app(workflow_engine=engine, scheduler=_make_mock_scheduler())
         with TestClient(app) as tc:
-            resp = tc.get("/api/v1/sessions")
+            resp = tc.get("/v1/sessions")
             assert resp.status_code == 200
             body = resp.json()
             assert body["total"] == 1
@@ -78,12 +78,12 @@ class TestGetSession:
 
         app = create_app(workflow_engine=engine, scheduler=_make_mock_scheduler())
         with TestClient(app) as tc:
-            resp = tc.get(f"/api/v1/sessions/{run.id}")
+            resp = tc.get(f"/v1/sessions/{run.id}")
             assert resp.status_code == 200
             body = resp.json()
             assert body["id"] == run.id
             assert body["agent_code"] == "EE"
 
     def test_404_for_unknown_id(self, client: TestClient) -> None:
-        resp = client.get("/api/v1/sessions/nonexistent")
+        resp = client.get("/v1/sessions/nonexistent")
         assert resp.status_code == 404

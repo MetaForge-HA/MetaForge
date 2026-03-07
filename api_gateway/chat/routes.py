@@ -4,7 +4,7 @@ Provides CRUD operations on chat channels, threads, and messages.
 All state is held in an in-memory ``ChatStore`` for now; production
 will swap in a PostgreSQL-backed implementation.
 
-Endpoints live under ``/api/v1/chat``.
+Endpoints live under ``/v1/chat``.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class ChatStore:
 
 store = ChatStore.create()
 
-router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+router = APIRouter(prefix="/v1/chat", tags=["chat"])
 
 
 # ---------------------------------------------------------------------------

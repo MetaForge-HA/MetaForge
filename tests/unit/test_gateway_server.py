@@ -104,13 +104,13 @@ class TestRouterMounting:
 
     def test_assistant_routes_exist(self, app):
         paths = [r.path for r in app.routes]
-        assert "/api/v1/assistant/request" in paths
-        assert "/api/v1/assistant/proposals" in paths
+        assert "/v1/assistant/request" in paths
+        assert "/v1/assistant/proposals" in paths
 
     def test_chat_routes_exist(self, app):
         paths = [r.path for r in app.routes]
-        assert "/api/v1/chat/channels" in paths
-        assert "/api/v1/chat/threads" in paths
+        assert "/v1/chat/channels" in paths
+        assert "/v1/chat/threads" in paths
 
 
 # --- Smoke endpoints ---
@@ -132,14 +132,14 @@ class TestChatEndpoints:
     """Smoke tests for the chat endpoints through the full app."""
 
     async def test_list_channels(self, client: AsyncClient):
-        response = await client.get("/api/v1/chat/channels")
+        response = await client.get("/v1/chat/channels")
         assert response.status_code == 200
         data = response.json()
         assert "channels" in data
         assert len(data["channels"]) > 0
 
     async def test_list_threads_empty(self, client: AsyncClient):
-        response = await client.get("/api/v1/chat/threads")
+        response = await client.get("/v1/chat/threads")
         assert response.status_code == 200
         data = response.json()
         assert "threads" in data
@@ -150,7 +150,7 @@ class TestAssistantEndpoints:
 
     async def test_submit_request_known_action(self, wired_client: AsyncClient):
         response = await wired_client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "validate_stress",
                 "target_id": "00000000-0000-0000-0000-000000000001",
@@ -165,7 +165,7 @@ class TestAssistantEndpoints:
 
     async def test_submit_request_unknown_action(self, wired_client: AsyncClient):
         response = await wired_client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "nonexistent_action",
                 "target_id": "00000000-0000-0000-0000-000000000001",
@@ -176,13 +176,13 @@ class TestAssistantEndpoints:
 
     async def test_run_status_not_found(self, wired_client: AsyncClient):
         response = await wired_client.get(
-            "/api/v1/assistant/request/nonexistent-run-id"
+            "/v1/assistant/request/nonexistent-run-id"
         )
         assert response.status_code == 404
 
     async def test_run_status_after_submit(self, wired_client: AsyncClient):
         submit_resp = await wired_client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "run_erc",
                 "target_id": "00000000-0000-0000-0000-000000000001",
@@ -193,7 +193,7 @@ class TestAssistantEndpoints:
         run_id = submit_resp.json()["result"]["run_id"]
 
         status_resp = await wired_client.get(
-            f"/api/v1/assistant/request/{run_id}"
+            f"/v1/assistant/request/{run_id}"
         )
         assert status_resp.status_code == 200
         data = status_resp.json()
@@ -201,7 +201,7 @@ class TestAssistantEndpoints:
         assert data["status"] in ("running", "completed", "failed")
 
     async def test_list_proposals(self, wired_client: AsyncClient):
-        response = await wired_client.get("/api/v1/assistant/proposals")
+        response = await wired_client.get("/v1/assistant/proposals")
         assert response.status_code == 200
         data = response.json()
         assert "proposals" in data
@@ -211,7 +211,7 @@ class TestAssistantEndpoints:
     ):
         """Without orchestrator, route falls back to 'accepted' placeholder."""
         response = await client.post(
-            "/api/v1/assistant/request",
+            "/v1/assistant/request",
             json={
                 "action": "validate_stress",
                 "target_id": "00000000-0000-0000-0000-000000000001",

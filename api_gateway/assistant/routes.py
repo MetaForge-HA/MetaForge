@@ -4,7 +4,7 @@ Provides REST and WebSocket endpoints that IDE assistants use to
 submit agent requests, manage design-change proposals (approve/reject),
 and receive real-time events via SSE or WebSocket.
 
-Endpoints live under ``/api/v1/assistant``.
+Endpoints live under ``/v1/assistant``.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 
 workflow = ApprovalWorkflow()
 
-router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
+router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
 
 # ---------------------------------------------------------------------------

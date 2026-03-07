@@ -38,13 +38,13 @@ def mock_service():
 
 
 class TestUploadAndConvert:
-    """POST /api/v1/convert."""
+    """POST /v1/convert."""
 
     @pytest.mark.anyio
     async def test_rejects_unsupported_extension(self, client):
         file = io.BytesIO(b"not a cad file")
         response = await client.post(
-            "/api/v1/convert",
+            "/v1/convert",
             files={"file": ("model.stl", file, "application/octet-stream")},
         )
         assert response.status_code == 400
@@ -54,7 +54,7 @@ class TestUploadAndConvert:
     async def test_rejects_empty_file(self, client):
         file = io.BytesIO(b"")
         response = await client.post(
-            "/api/v1/convert",
+            "/v1/convert",
             files={"file": ("model.step", file, "application/octet-stream")},
         )
         assert response.status_code == 400
@@ -64,14 +64,14 @@ class TestUploadAndConvert:
     async def test_successful_conversion(self, client, mock_service):
         mock_service.convert.return_value = {
             "hash": "abc123",
-            "glb_url": "/api/v1/convert/abc123/glb?quality=standard",
+            "glb_url": "/v1/convert/abc123/glb?quality=standard",
             "metadata": {"parts": [], "materials": [], "stats": {"triangleCount": 0, "fileSize": 0}},
             "cached": False,
         }
 
         file = io.BytesIO(b"fake step content")
         response = await client.post(
-            "/api/v1/convert",
+            "/v1/convert",
             files={"file": ("bracket.step", file, "application/octet-stream")},
         )
         assert response.status_code == 200
@@ -84,14 +84,14 @@ class TestUploadAndConvert:
     async def test_cache_hit(self, client, mock_service):
         mock_service.convert.return_value = {
             "hash": "abc123",
-            "glb_url": "/api/v1/convert/abc123/glb?quality=standard",
+            "glb_url": "/v1/convert/abc123/glb?quality=standard",
             "metadata": {"parts": [], "materials": [], "stats": {"triangleCount": 0, "fileSize": 0}},
             "cached": True,
         }
 
         file = io.BytesIO(b"fake step content")
         response = await client.post(
-            "/api/v1/convert",
+            "/v1/convert",
             files={"file": ("bracket.step", file, "application/octet-stream")},
         )
         assert response.status_code == 200
@@ -99,12 +99,12 @@ class TestUploadAndConvert:
 
 
 class TestGetConversion:
-    """GET /api/v1/convert/{hash}."""
+    """GET /v1/convert/{hash}."""
 
     @pytest.mark.anyio
     async def test_not_found(self, client, mock_service):
         mock_service.get_metadata.return_value = None
-        response = await client.get("/api/v1/convert/nonexistent")
+        response = await client.get("/v1/convert/nonexistent")
         assert response.status_code == 404
 
     @pytest.mark.anyio
@@ -115,7 +115,7 @@ class TestGetConversion:
             "stats": {"triangleCount": 100, "fileSize": 5000},
         }
 
-        response = await client.get("/api/v1/convert/abc123")
+        response = await client.get("/v1/convert/abc123")
         assert response.status_code == 200
         data = response.json()
         assert data["hash"] == "abc123"
@@ -123,22 +123,22 @@ class TestGetConversion:
 
 
 class TestGetGlb:
-    """GET /api/v1/convert/{hash}/glb."""
+    """GET /v1/convert/{hash}/glb."""
 
     @pytest.mark.anyio
     async def test_not_found(self, client, mock_service):
         mock_service.get_glb_path.return_value = None
-        response = await client.get("/api/v1/convert/nonexistent/glb")
+        response = await client.get("/v1/convert/nonexistent/glb")
         assert response.status_code == 404
 
 
 class TestGetMetadata:
-    """GET /api/v1/convert/{hash}/metadata."""
+    """GET /v1/convert/{hash}/metadata."""
 
     @pytest.mark.anyio
     async def test_not_found(self, client, mock_service):
         mock_service.get_metadata.return_value = None
-        response = await client.get("/api/v1/convert/nonexistent/metadata")
+        response = await client.get("/v1/convert/nonexistent/metadata")
         assert response.status_code == 404
 
     @pytest.mark.anyio
@@ -146,6 +146,6 @@ class TestGetMetadata:
         meta = {"parts": [], "materials": [], "stats": {"triangleCount": 0, "fileSize": 0}}
         mock_service.get_metadata.return_value = meta
 
-        response = await client.get("/api/v1/convert/abc123/metadata")
+        response = await client.get("/v1/convert/abc123/metadata")
         assert response.status_code == 200
         assert response.json() == meta
