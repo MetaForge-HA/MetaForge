@@ -10,29 +10,19 @@
  * packages fail to load.
  */
 
+import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
+import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
+import { ZoneContextManager } from '@opentelemetry/context-zone';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { registerInstrumentations } from '@opentelemetry/instrumentation';
+
 export function initTelemetry(): void {
   try {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { WebTracerProvider } = require('@opentelemetry/sdk-trace-web');
-    const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-base');
-    const {
-      OTLPTraceExporter,
-    } = require('@opentelemetry/exporter-trace-otlp-http');
-    const {
-      FetchInstrumentation,
-    } = require('@opentelemetry/instrumentation-fetch');
-    const {
-      XMLHttpRequestInstrumentation,
-    } = require('@opentelemetry/instrumentation-xml-http-request');
-    const { ZoneContextManager } = require('@opentelemetry/context-zone');
-    const { Resource } = require('@opentelemetry/resources');
-    const {
-      ATTR_SERVICE_NAME,
-    } = require('@opentelemetry/semantic-conventions');
-    const { registerInstrumentations } = require('@opentelemetry/instrumentation');
-    /* eslint-enable @typescript-eslint/no-require-imports */
-
-    const resource = new Resource({
+    const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: 'metaforge-dashboard',
     });
 
