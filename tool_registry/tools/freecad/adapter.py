@@ -17,11 +17,12 @@ logger = structlog.get_logger()
 class FreecadServer(McpToolServer):
     """FreeCAD tool adapter for CAD operations via MCP.
 
-    Provides 4 tools:
+    Provides 5 tools:
     - freecad.export_geometry: Export CAD model to STEP/STL/OBJ format
     - freecad.generate_mesh: Generate finite element mesh from CAD geometry
     - freecad.boolean_operation: Perform CSG boolean operations (union, subtract, intersect)
     - freecad.get_properties: Extract geometric properties (volume, area, etc.)
+    - freecad.create_parametric: Generate parametric CAD geometry from shape parameters
     """
 
     def __init__(self, config: FreecadConfig | None = None) -> None:
@@ -214,6 +215,89 @@ class FreecadServer(McpToolServer):
             handler=self.get_properties,
         )
 
+        self.register_tool(
+            manifest=ToolManifest(
+                tool_id="freecad.create_parametric",
+                adapter_id="freecad",
+                name="Create Parametric",
+                description="Generate parametric CAD geometry from shape type and dimensions",
+                capability="cad_generation",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "shape_type": {
+                            "type": "string",
+                            "enum": ["bracket", "plate", "enclosure", "cylinder"],
+                            "description": "Type of parametric shape to generate",
+                        },
+                        "parameters": {
+                            "type": "object",
+                            "description": (
+                                "Shape-specific dimensions "
+                                "(width, height, thickness, etc.)"
+                            ),
+                        },
+                        "material": {
+                            "type": "string",
+                            "description": "Material name for metadata",
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Output STEP file path",
+                        },
+                    },
+                    "required": ["shape_type", "parameters", "output_path"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "cad_file": {"type": "string"},
+                        "volume_mm3": {"type": "number"},
+                        "surface_area_mm2": {"type": "number"},
+                        "bounding_box": {"type": "object"},
+                        "parameters_used": {"type": "object"},
+                    },
+                },
+                phase=2,
+                resource_limits=ResourceLimits(
+                    max_memory_mb=2048, max_cpu_seconds=300, max_disk_mb=512
+                ),
+            ),
+            handler=self.create_parametric,
+        )
+
+    async def create_parametric(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Generate parametric CAD geometry from shape type and dimensions.
+
+        In production, this invokes FreeCAD headless with a parametric script.
+        For now, it validates arguments and raises NotImplementedError.
+        """
+        shape_type = arguments.get("shape_type", "")
+        parameters = arguments.get("parameters", {})
+        material = arguments.get("material", "")
+        output_path = arguments.get("output_path", "")
+
+        if not shape_type:
+            raise ValueError("shape_type is required")
+        if shape_type not in ("bracket", "plate", "enclosure", "cylinder"):
+            raise ValueError(f"Unsupported shape type: {shape_type}")
+        if not parameters:
+            raise ValueError("parameters is required")
+        if not output_path:
+            raise ValueError("output_path is required")
+
+        logger.info(
+            "Creating parametric CAD",
+            shape_type=shape_type,
+            material=material,
+            output_path=output_path,
+        )
+
+        result = await self._execute_parametric(
+            shape_type, parameters, material, output_path
+        )
+        return result
+
     async def export_geometry(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Export CAD model to the requested format.
 
@@ -379,5 +463,18 @@ class FreecadServer(McpToolServer):
         """Execute FreeCAD property analysis. See _execute_export for notes."""
         raise NotImplementedError(
             "FreeCAD property analysis requires the freecadcmd binary. "
+            "Use mock in tests or install FreeCAD for production use."
+        )
+
+    async def _execute_parametric(
+        self,
+        shape_type: str,
+        parameters: dict[str, Any],
+        material: str,
+        output_path: str,
+    ) -> dict[str, Any]:
+        """Execute FreeCAD parametric generation. See _execute_export for notes."""
+        raise NotImplementedError(
+            "FreeCAD parametric CAD generation requires the freecadcmd binary. "
             "Use mock in tests or install FreeCAD for production use."
         )

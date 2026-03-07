@@ -63,6 +63,17 @@ DRC_CLEAN_RESULT = {
     "passed": True,
 }
 
+CAD_GENERATE_RESULT = {
+    "cad_file": "output/bracket_generated.step",
+    "volume_mm3": 12500.0,
+    "surface_area_mm2": 8400.0,
+    "bounding_box": {
+        "min_x": 0.0, "min_y": 0.0, "min_z": 0.0,
+        "max_x": 50.0, "max_y": 30.0, "max_z": 5.0,
+    },
+    "parameters_used": {"width": 50.0, "height": 30.0, "thickness": 5.0},
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -77,6 +88,10 @@ def _make_mcp() -> InMemoryMcpBridge:
     mcp.register_tool_response("kicad.run_erc", ERC_CLEAN_RESULT)
     mcp.register_tool("kicad.run_drc", capability="drc_validation", name="Run DRC")
     mcp.register_tool_response("kicad.run_drc", DRC_CLEAN_RESULT)
+    mcp.register_tool(
+        "freecad.create_parametric", capability="cad_generation", name="Create Parametric"
+    )
+    mcp.register_tool_response("freecad.create_parametric", CAD_GENERATE_RESULT)
     return mcp
 
 
@@ -403,3 +418,39 @@ class TestFullRoundTripE2E:
         assert final_body is not None
         assert "stress" in final_body["steps"]
         assert "erc" in final_body["steps"]
+
+    async def test_generate_cad_round_trip(self, gateway_stack):
+        """Submit generate_cad → poll status → verify agent ran."""
+        s = gateway_stack
+
+        # 1. Submit
+        submit_resp = await s["client"].post(
+            "/v1/assistant/request",
+            json={
+                "action": "generate_cad",
+                "target_id": str(s["artifact"].id),
+                "parameters": {
+                    "shape_type": "bracket",
+                    "dimensions": {"width": 50.0, "height": 30.0, "thickness": 5.0},
+                    "material": "aluminum_6061",
+                },
+            },
+        )
+        assert submit_resp.status_code == 200
+        run_id = submit_resp.json()["result"]["run_id"]
+
+        # 2. Poll until complete
+        final_body = None
+        for _ in range(50):
+            await asyncio.sleep(0.1)
+            resp = await s["client"].get(f"/v1/assistant/request/{run_id}")
+            if resp.status_code == 200:
+                body = resp.json()
+                steps = body.get("steps", {})
+                cad_step = steps.get("cad")
+                if cad_step and cad_step.get("status") in {"completed", "failed"}:
+                    final_body = body
+                    break
+
+        assert final_body is not None
+        assert final_body["steps"]["cad"]["status"] == "completed"

@@ -877,3 +877,140 @@ class TestGenerateMeshE2E:
 
         assert result.success is True
         assert result.skill_results[0]["algorithm_used"] == "gmsh"
+
+
+# ---------------------------------------------------------------------------
+# Test class: Generate CAD through MechanicalAgent
+# ---------------------------------------------------------------------------
+
+
+FREECAD_CAD_RESULT = {
+    "cad_file": "output/bracket_generated.step",
+    "volume_mm3": 12500.0,
+    "surface_area_mm2": 8400.0,
+    "bounding_box": {
+        "min_x": 0.0,
+        "min_y": 0.0,
+        "min_z": 0.0,
+        "max_x": 50.0,
+        "max_y": 30.0,
+        "max_z": 5.0,
+    },
+    "parameters_used": {"width": 50.0, "height": 30.0, "thickness": 5.0},
+}
+
+
+class TestGenerateCadE2E:
+    """E2E tests for parametric CAD generation pipeline via FreeCAD MCP."""
+
+    @pytest.fixture
+    async def stack(self):
+        """Set up Twin + MCP (with FreeCAD create_parametric tool) + Agent."""
+        from skill_registry.mcp_bridge import InMemoryMcpBridge
+
+        twin = InMemoryTwinAPI.create()
+        mcp = InMemoryMcpBridge()
+        mcp.register_tool(
+            "freecad.create_parametric",
+            capability="cad_generation",
+            name="Create Parametric",
+        )
+        mcp.register_tool_response("freecad.create_parametric", FREECAD_CAD_RESULT)
+
+        artifact = _make_bracket_artifact()
+        created = await twin.create_artifact(artifact)
+        agent = MechanicalAgent(twin=twin, mcp=mcp)
+        return {"twin": twin, "mcp": mcp, "agent": agent, "artifact": created}
+
+    async def test_generate_bracket(self, stack):
+        """Happy path: generate a bracket with full dimensions."""
+        s = stack
+        result = await s["agent"].run_task(
+            TaskRequest(
+                task_type="generate_cad",
+                artifact_id=s["artifact"].id,
+                parameters={
+                    "shape_type": "bracket",
+                    "dimensions": {"width": 50.0, "height": 30.0, "thickness": 5.0},
+                    "material": "aluminum_6061",
+                },
+            )
+        )
+
+        assert result.success is True
+        assert result.task_type == "generate_cad"
+        assert len(result.skill_results) == 1
+
+        cad_result = result.skill_results[0]
+        assert cad_result["skill"] == "generate_cad"
+        assert cad_result["cad_file"] == "output/bracket_generated.step"
+        assert cad_result["volume_mm3"] == 12500.0
+        assert cad_result["surface_area_mm2"] == 8400.0
+        assert cad_result["shape_type"] == "bracket"
+        assert cad_result["material"] == "aluminum_6061"
+        assert cad_result["bounding_box"]["max_x"] == 50.0
+
+    async def test_generate_plate(self, stack):
+        """Generate a plate shape type."""
+        s = stack
+        result = await s["agent"].run_task(
+            TaskRequest(
+                task_type="generate_cad",
+                artifact_id=s["artifact"].id,
+                parameters={
+                    "shape_type": "plate",
+                    "dimensions": {"width": 100.0, "height": 80.0, "thickness": 2.0},
+                },
+            )
+        )
+
+        assert result.success is True
+        assert result.skill_results[0]["shape_type"] == "plate"
+
+    async def test_generate_missing_shape_type(self, stack):
+        """Missing shape_type parameter returns error."""
+        s = stack
+        result = await s["agent"].run_task(
+            TaskRequest(
+                task_type="generate_cad",
+                artifact_id=s["artifact"].id,
+                parameters={
+                    "dimensions": {"width": 50.0},
+                },
+            )
+        )
+
+        assert result.success is False
+        assert any("shape_type" in e for e in result.errors)
+
+    async def test_generate_missing_dimensions(self, stack):
+        """Missing dimensions parameter returns error."""
+        s = stack
+        result = await s["agent"].run_task(
+            TaskRequest(
+                task_type="generate_cad",
+                artifact_id=s["artifact"].id,
+                parameters={
+                    "shape_type": "bracket",
+                },
+            )
+        )
+
+        assert result.success is False
+        assert any("dimensions" in e for e in result.errors)
+
+    async def test_generate_unsupported_shape(self, stack):
+        """Unsupported shape_type returns error."""
+        s = stack
+        result = await s["agent"].run_task(
+            TaskRequest(
+                task_type="generate_cad",
+                artifact_id=s["artifact"].id,
+                parameters={
+                    "shape_type": "gearbox",
+                    "dimensions": {"width": 50.0},
+                },
+            )
+        )
+
+        assert result.success is False

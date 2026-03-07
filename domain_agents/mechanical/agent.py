@@ -21,6 +21,12 @@ from domain_agents.mechanical.skills.check_tolerance.schema import (
     ManufacturingProcess,
     ToleranceSpec,
 )
+from domain_agents.mechanical.skills.generate_cad.handler import (
+    GenerateCadHandler,
+)
+from domain_agents.mechanical.skills.generate_cad.schema import (
+    GenerateCadInput,
+)
 from domain_agents.mechanical.skills.generate_mesh.handler import (
     GenerateMeshHandler,
 )
@@ -72,7 +78,10 @@ class MechanicalAgent:
         ))
     """
 
-    SUPPORTED_TASKS = {"validate_stress", "check_tolerances", "generate_mesh", "full_validation"}
+    SUPPORTED_TASKS = {
+        "validate_stress", "check_tolerances", "generate_mesh",
+        "generate_cad", "full_validation",
+    }
 
     def __init__(
         self,
@@ -131,6 +140,7 @@ class MechanicalAgent:
             "validate_stress": self._run_validate_stress,
             "check_tolerances": self._run_check_tolerances,
             "generate_mesh": self._run_generate_mesh,
+            "generate_cad": self._run_generate_cad,
             "full_validation": self._run_full_validation,
         }
         return handlers[task_type]
@@ -333,6 +343,67 @@ class MechanicalAgent:
                 }
             ],
             warnings=output.quality_issues if not output.quality_acceptable else [],
+        )
+
+    async def _run_generate_cad(self, request: TaskRequest) -> TaskResult:
+        """Run CAD generation using the generate_cad skill."""
+        ctx = self._create_skill_context(request.branch)
+
+        shape_type: str = request.parameters.get("shape_type", "")
+        if not shape_type:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=["Missing required parameter: shape_type"],
+            )
+
+        dimensions: dict = request.parameters.get("dimensions", {})
+        if not dimensions:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=["Missing required parameter: dimensions"],
+            )
+
+        skill_input = GenerateCadInput(
+            artifact_id=request.artifact_id,
+            shape_type=shape_type,
+            dimensions=dimensions,
+            material=request.parameters.get("material", "aluminum_6061"),
+            output_path=request.parameters.get("output_path", ""),
+            constraints=request.parameters.get("constraints", {}),
+        )
+
+        handler = GenerateCadHandler(ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=result.errors,
+            )
+
+        output = result.data
+        return TaskResult(
+            task_type=request.task_type,
+            artifact_id=request.artifact_id,
+            success=True,
+            skill_results=[
+                {
+                    "skill": "generate_cad",
+                    "cad_file": output.cad_file,
+                    "shape_type": output.shape_type,
+                    "volume_mm3": output.volume_mm3,
+                    "surface_area_mm2": output.surface_area_mm2,
+                    "bounding_box": output.bounding_box.model_dump(),
+                    "parameters_used": output.parameters_used,
+                    "material": output.material,
+                }
+            ],
         )
 
     async def _run_full_validation(self, request: TaskRequest) -> TaskResult:

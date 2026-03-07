@@ -92,6 +92,12 @@ ACTION_WORKFLOWS: dict[str, WorkflowDefinition] = {
             ),
         ],
     ),
+    "generate_cad": WorkflowDefinition(
+        name="generate_cad",
+        steps=[
+            WorkflowStep(step_id="cad", agent_code="MECH", task_type="generate_cad"),
+        ],
+    ),
     "run_erc": WorkflowDefinition(
         name="run_erc",
         steps=[

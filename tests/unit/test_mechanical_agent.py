@@ -65,6 +65,7 @@ class TestMechanicalAgent:
             "validate_stress",
             "check_tolerances",
             "generate_mesh",
+            "generate_cad",
             "full_validation",
         }
 
