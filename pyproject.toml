@@ -35,6 +35,9 @@ neo4j = [
 kafka = [
     "aiokafka>=0.9",
 ]
+assistant = [
+    "watchfiles>=0.21",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
