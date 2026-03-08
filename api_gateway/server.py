@@ -244,7 +244,6 @@ def create_app(
     app.include_router(health_router)
     app.include_router(assistant_router)
     app.include_router(chat_router)
-<<<<<<< HEAD
     app.include_router(convert_router)
     app.include_router(sessions_router)
     app.include_router(projects_router)
@@ -257,18 +256,13 @@ def create_app(
         logger.info("fastapi_auto_instrumented")
     except ImportError:
         pass
-=======
+
     app.include_router(knowledge_router)
->>>>>>> 715ba8c (feat(knowledge): implement Knowledge Layer with pgvector store and skills (MET-200))
 
     logger.info(
         "gateway_configured",
         cors_origins=origins,
-<<<<<<< HEAD
-        routers=["health", "assistant", "chat", "convert", "sessions", "projects"],
-=======
-        routers=["health", "assistant", "chat", "knowledge"],
->>>>>>> 715ba8c (feat(knowledge): implement Knowledge Layer with pgvector store and skills (MET-200))
+        routers=["health", "assistant", "chat", "convert", "sessions", "projects", "knowledge"],
     )
 
     return app
