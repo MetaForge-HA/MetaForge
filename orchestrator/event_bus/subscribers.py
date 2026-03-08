@@ -20,6 +20,7 @@ from observability.tracing import get_tracer
 from orchestrator.event_bus.events import Event, EventType
 
 if TYPE_CHECKING:
+    from orchestrator.event_bus.kafka_producer import KafkaEventPublisher
     from orchestrator.workflow_dag import WorkflowEngine
 
 logger = structlog.get_logger(__name__)
@@ -50,12 +51,21 @@ class EventSubscriber(ABC):
 
 
 class EventBus:
-    """In-memory event bus with filtered dispatch and audit log."""
+    """In-memory event bus with filtered dispatch and audit log.
 
-    def __init__(self, collector: MetricsCollector | None = None) -> None:
+    Optionally forwards published events to Kafka via a
+    ``KafkaEventPublisher`` for durable persistence.
+    """
+
+    def __init__(
+        self,
+        collector: MetricsCollector | None = None,
+        kafka_publisher: KafkaEventPublisher | None = None,
+    ) -> None:
         self._subscribers: dict[str, EventSubscriber] = {}
         self._event_log: deque[Event] = deque(maxlen=_MAX_EVENT_LOG)
         self._collector = collector
+        self._kafka_publisher = kafka_publisher
 
     def subscribe(self, subscriber: EventSubscriber) -> None:
         self._subscribers[subscriber.subscriber_id] = subscriber
@@ -112,6 +122,17 @@ class EventBus:
                 dispatched=dispatched,
                 duration_ms=round(elapsed_ms, 2),
             )
+
+            # Fire-and-forget Kafka persistence
+            if self._kafka_publisher is not None:
+                try:
+                    await self._kafka_publisher.publish(event)
+                except Exception:
+                    logger.exception(
+                        "kafka_publish_error",
+                        event_id=event.id,
+                        event_type=str(event.type),
+                    )
 
     def get_event_log(
         self,
@@ -226,3 +247,27 @@ def create_default_bus(
     if workflow_engine is not None:
         bus.subscribe(WorkflowEventSubscriber(workflow_engine))
     return bus
+
+
+def create_kafka_bus(
+    bootstrap_servers: str = "localhost:9092",
+    client_id: str = "metaforge-producer",
+    workflow_engine: WorkflowEngine | None = None,
+) -> tuple[EventBus, KafkaEventPublisher]:
+    """Create an event bus backed by a ``KafkaEventPublisher``.
+
+    Returns a ``(bus, publisher)`` tuple.  The caller is responsible for
+    calling ``await publisher.start()`` before publishing and
+    ``await publisher.stop()`` on shutdown.
+    """
+    from orchestrator.event_bus.kafka_producer import KafkaEventPublisher
+
+    publisher = KafkaEventPublisher(
+        bootstrap_servers=bootstrap_servers,
+        client_id=client_id,
+    )
+    bus = EventBus(kafka_publisher=publisher, collector=None)
+    bus.subscribe(AuditEventSubscriber())
+    if workflow_engine is not None:
+        bus.subscribe(WorkflowEventSubscriber(workflow_engine))
+    return bus, publisher

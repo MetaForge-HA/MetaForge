@@ -30,6 +30,9 @@ forge-server = "api_gateway.server:main"
 neo4j = [
     "neo4j>=5.0",
 ]
+kafka = [
+    "aiokafka>=0.9",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

@@ -16,12 +16,15 @@ from orchestrator.event_bus.events import (
     Event,
     EventType,
 )
+from orchestrator.event_bus.kafka_consumer import KafkaEventConsumer
+from orchestrator.event_bus.kafka_producer import KafkaEventPublisher, resolve_topic
 from orchestrator.event_bus.subscribers import (
     AuditEventSubscriber,
     EventBus,
     EventSubscriber,
     WorkflowEventSubscriber,
     create_default_bus,
+    create_kafka_bus,
 )
 
 __all__ = [
@@ -34,6 +37,8 @@ __all__ = [
     "EventBus",
     "EventSubscriber",
     "EventType",
+    "KafkaEventConsumer",
+    "KafkaEventPublisher",
     "TOPIC_AGENT_CHAT",
     "TOPIC_AGENT_EVENTS",
     "TOPIC_APPROVAL_EVENTS",
@@ -42,4 +47,6 @@ __all__ = [
     "TopicConfig",
     "WorkflowEventSubscriber",
     "create_default_bus",
+    "create_kafka_bus",
+    "resolve_topic",
 ]
