@@ -6,6 +6,7 @@ entry point for agents, the orchestrator, and the gateway.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
@@ -196,6 +197,34 @@ class InMemoryTwinAPI(TwinAPI):
         graph = InMemoryGraphEngine(collector=collector)
         version = InMemoryVersionEngine(graph)
         constraints = InMemoryConstraintEngine(graph, collector=collector)
+        return cls(graph=graph, version=version, constraints=constraints)
+
+    @classmethod
+    async def create_from_env(cls) -> InMemoryTwinAPI:
+        """Factory that selects the graph backend from environment variables.
+
+        Reads ``METAFORGE_GRAPH_BACKEND`` (default: ``"memory"``).
+        When set to ``"neo4j"``, also reads:
+        - ``METAFORGE_NEO4J_URI`` (default: ``bolt://localhost:7687``)
+        - ``METAFORGE_NEO4J_USER`` (default: ``neo4j``)
+        - ``METAFORGE_NEO4J_PASSWORD`` (default: ``password``)
+        """
+        backend = os.environ.get("METAFORGE_GRAPH_BACKEND", "memory").lower()
+        if backend == "neo4j":
+            from twin_core.neo4j_graph_engine import Neo4jGraphEngine
+
+            uri = os.environ.get("METAFORGE_NEO4J_URI", "bolt://localhost:7687")
+            user = os.environ.get("METAFORGE_NEO4J_USER", "neo4j")
+            password = os.environ.get("METAFORGE_NEO4J_PASSWORD", "password")
+            graph: GraphEngine = Neo4jGraphEngine(
+                uri=uri, user=user, password=password,
+            )
+            await graph.connect()  # type: ignore[attr-defined]
+        else:
+            graph = InMemoryGraphEngine()
+
+        version = InMemoryVersionEngine(graph)
+        constraints = InMemoryConstraintEngine(graph)
         return cls(graph=graph, version=version, constraints=constraints)
 
     # --- Artifacts ---
