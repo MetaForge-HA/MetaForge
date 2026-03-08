@@ -1,0 +1,15 @@
+{
+  "name": "retrieve_knowledge",
+  "version": "0.1.0",
+  "domain": "shared",
+  "agent": "any",
+  "description": "Retrieves relevant knowledge entries from the knowledge store using semantic search over embedded design knowledge.",
+  "phase": 1,
+  "tools_required": [],
+  "input_schema": "schema.RetrieveKnowledgeInput",
+  "output_schema": "schema.RetrieveKnowledgeOutput",
+  "timeout_seconds": 30,
+  "retries": 1,
+  "idempotent": true,
+  "tags": ["knowledge", "search", "retrieval", "semantic"]
+}

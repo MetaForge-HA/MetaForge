@@ -19,6 +19,7 @@ from api_gateway.assistant.routes import router as assistant_router
 from api_gateway.chat.routes import router as chat_router
 from api_gateway.convert.routes import router as convert_router
 from api_gateway.health import health_router
+from api_gateway.knowledge.routes import router as knowledge_router
 from api_gateway.projects.routes import router as projects_router
 from api_gateway.sessions.routes import router as sessions_router
 from domain_agents.electronics.agent import ElectronicsAgent
@@ -243,6 +244,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(assistant_router)
     app.include_router(chat_router)
+<<<<<<< HEAD
     app.include_router(convert_router)
     app.include_router(sessions_router)
     app.include_router(projects_router)
@@ -255,11 +257,18 @@ def create_app(
         logger.info("fastapi_auto_instrumented")
     except ImportError:
         pass
+=======
+    app.include_router(knowledge_router)
+>>>>>>> 715ba8c (feat(knowledge): implement Knowledge Layer with pgvector store and skills (MET-200))
 
     logger.info(
         "gateway_configured",
         cors_origins=origins,
+<<<<<<< HEAD
         routers=["health", "assistant", "chat", "convert", "sessions", "projects"],
+=======
+        routers=["health", "assistant", "chat", "knowledge"],
+>>>>>>> 715ba8c (feat(knowledge): implement Knowledge Layer with pgvector store and skills (MET-200))
     )
 
     return app

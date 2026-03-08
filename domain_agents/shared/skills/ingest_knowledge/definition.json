@@ -1,0 +1,15 @@
+{
+  "name": "ingest_knowledge",
+  "version": "0.1.0",
+  "domain": "shared",
+  "agent": "any",
+  "description": "Ingests new knowledge into the knowledge store by chunking, embedding, and persisting content.",
+  "phase": 1,
+  "tools_required": [],
+  "input_schema": "schema.IngestKnowledgeInput",
+  "output_schema": "schema.IngestKnowledgeOutput",
+  "timeout_seconds": 60,
+  "retries": 1,
+  "idempotent": false,
+  "tags": ["knowledge", "ingestion", "embedding"]
+}
