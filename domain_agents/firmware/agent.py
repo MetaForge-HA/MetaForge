@@ -2,27 +2,63 @@
 
 Orchestrates skill execution for firmware development:
 HAL generation, driver scaffolding, and RTOS configuration.
+
+Supports two modes:
+- **LLM mode**: PydanticAI Agent() with LLM-driven tool selection
+- **Hardcoded mode**: Deterministic dispatch by task_type (fallback)
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Coroutine
 from typing import Any
 from uuid import UUID, uuid4
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from domain_agents.base_agent import (
+    AgentDependencies,
+    AgentResult,
+    get_llm_model,
+    is_llm_available,
+)
 from domain_agents.firmware.skills.configure_rtos.handler import ConfigureRtosHandler
 from domain_agents.firmware.skills.configure_rtos.schema import ConfigureRtosInput
 from domain_agents.firmware.skills.generate_hal.handler import GenerateHalHandler
 from domain_agents.firmware.skills.generate_hal.schema import GenerateHalInput
 from domain_agents.firmware.skills.scaffold_driver.handler import ScaffoldDriverHandler
 from domain_agents.firmware.skills.scaffold_driver.schema import ScaffoldDriverInput
+from observability.tracing import get_tracer
 from skill_registry.mcp_bridge import McpBridge
 from skill_registry.skill_base import SkillContext
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
+tracer = get_tracer("domain_agents.firmware")
+
+
+# ---------------------------------------------------------------------------
+# Domain-specific result model for PydanticAI structured output
+# ---------------------------------------------------------------------------
+
+
+class FirmwareResult(AgentResult):
+    """Structured output from the firmware agent's PydanticAI run."""
+
+    overall_passed: bool = Field(
+        default=True,
+        description="Whether all firmware tasks completed successfully",
+    )
+    generated_files: list[str] = Field(
+        default_factory=list,
+        description="List of generated firmware files",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible request/result models
+# ---------------------------------------------------------------------------
 
 
 class TaskRequest(BaseModel):
@@ -47,11 +83,216 @@ class TaskResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+# ---------------------------------------------------------------------------
+# PydanticAI agent factory (lazy, created once per process)
+# ---------------------------------------------------------------------------
+
+_pydantic_agent: Any | None = None
+
+FIRMWARE_SYSTEM_PROMPT = """\
+You are an expert firmware engineer working within the MetaForge design \
+validation platform. You have deep knowledge of embedded systems, \
+microcontroller architectures (STM32, ESP32, NRF52), real-time operating \
+systems (FreeRTOS, Zephyr), peripheral drivers, and hardware abstraction layers.
+
+You have access to the following tools:
+
+- **generate_hal**: Generate a Hardware Abstraction Layer for a target MCU. \
+Provide mcu_family and list of peripherals (GPIO, SPI, I2C, UART, etc.).
+- **scaffold_driver**: Scaffold a peripheral driver with register map and \
+interface code. Provide peripheral_type, interface (spi/i2c/uart), and driver_name.
+- **configure_rtos**: Configure an RTOS for the target firmware. Provide \
+rtos_name, task_definitions (name, priority, stack_size), heap_size_kb, \
+and tick_rate_hz.
+
+Given a user request, determine which tools to call and in what order. \
+For a full firmware build, generate HAL first, then scaffold drivers, \
+then configure RTOS. Provide a clear assessment of generated artifacts.
+"""
+
+
+def _get_or_create_pydantic_agent() -> Any:
+    """Lazily create the PydanticAI Agent for firmware engineering."""
+    global _pydantic_agent
+    if _pydantic_agent is not None:
+        return _pydantic_agent
+
+    try:
+        from pydantic_ai import Agent, RunContext
+    except ImportError:
+        logger.warning("pydantic_ai_not_installed")
+        return None
+
+    model = get_llm_model()
+    if model is None:
+        return None
+
+    agent = Agent(
+        model,
+        system_prompt=FIRMWARE_SYSTEM_PROMPT,
+        result_type=FirmwareResult,
+        deps_type=AgentDependencies,
+    )
+
+    # -- Tool: generate_hal ---------------------------------------------------
+
+    @agent.tool
+    async def generate_hal(
+        ctx: RunContext[AgentDependencies],
+        mcu_family: str,
+        peripherals: list[str],
+        output_dir: str = "firmware/hal",
+    ) -> dict[str, Any]:
+        """Generate a Hardware Abstraction Layer for a target MCU.
+
+        Args:
+            mcu_family: MCU family identifier (e.g. 'STM32F4', 'ESP32').
+            peripherals: List of peripherals to generate HAL for.
+            output_dir: Output directory for generated files.
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        skill_input = GenerateHalInput(
+            artifact_id=str(UUID("00000000-0000-0000-0000-000000000000")),
+            mcu_family=mcu_family,
+            peripherals=peripherals,
+            output_dir=output_dir,
+        )
+
+        handler = GenerateHalHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "generate_hal", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "generate_hal",
+            "success": True,
+            "generated_files": output.generated_files,
+            "pin_mappings": output.pin_mappings,
+            "hal_version": output.hal_version,
+        }
+
+    # -- Tool: scaffold_driver ------------------------------------------------
+
+    @agent.tool
+    async def scaffold_driver(
+        ctx: RunContext[AgentDependencies],
+        peripheral_type: str,
+        driver_name: str,
+        interface: str = "spi",
+    ) -> dict[str, Any]:
+        """Scaffold a peripheral driver with register map and interface code.
+
+        Args:
+            peripheral_type: Type of peripheral (e.g. 'accelerometer', 'gyroscope').
+            driver_name: Name for the driver (e.g. 'bmi088').
+            interface: Communication interface ('spi', 'i2c', 'uart').
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        skill_input = ScaffoldDriverInput(
+            artifact_id=str(UUID("00000000-0000-0000-0000-000000000000")),
+            peripheral_type=peripheral_type,
+            interface=interface,
+            driver_name=driver_name,
+        )
+
+        handler = ScaffoldDriverHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "scaffold_driver", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "scaffold_driver",
+            "success": True,
+            "driver_files": output.driver_files,
+            "interface_type": output.interface_type,
+            "register_map": output.register_map,
+        }
+
+    # -- Tool: configure_rtos -------------------------------------------------
+
+    @agent.tool
+    async def configure_rtos(
+        ctx: RunContext[AgentDependencies],
+        rtos_name: str,
+        task_definitions: list[dict[str, Any]],
+        heap_size_kb: int = 64,
+        tick_rate_hz: int = 1000,
+    ) -> dict[str, Any]:
+        """Configure an RTOS for the target firmware.
+
+        Args:
+            rtos_name: RTOS name (e.g. 'FreeRTOS', 'Zephyr').
+            task_definitions: List of task definitions with name, priority, stack_size.
+            heap_size_kb: Heap size in KB.
+            tick_rate_hz: RTOS tick rate in Hz.
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        skill_input = ConfigureRtosInput(
+            artifact_id=str(UUID("00000000-0000-0000-0000-000000000000")),
+            rtos_name=rtos_name,
+            task_definitions=task_definitions,
+            heap_size_kb=heap_size_kb,
+            tick_rate_hz=tick_rate_hz,
+        )
+
+        handler = ConfigureRtosHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "configure_rtos", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "configure_rtos",
+            "success": True,
+            "config_file": output.config_file,
+            "tasks_configured": output.tasks_configured,
+            "memory_estimate_kb": output.memory_estimate_kb,
+        }
+
+    _pydantic_agent = agent
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# Main agent class
+# ---------------------------------------------------------------------------
+
+
 class FirmwareAgent:
     """Firmware engineering domain agent.
 
     Orchestrates skill execution for firmware development:
     HAL generation, peripheral driver scaffolding, and RTOS configuration.
+
+    Supports two execution modes:
+    - PydanticAI mode: LLM-driven tool selection (when METAFORGE_LLM_PROVIDER is set)
+    - Hardcoded mode: Deterministic dispatch by task_type (fallback)
 
     The agent is stateless -- all state lives in the Digital Twin.
 
@@ -82,14 +323,103 @@ class FirmwareAgent:
     async def run_task(self, request: TaskRequest) -> TaskResult:
         """Execute a firmware engineering task.
 
-        Routes to the appropriate handler based on task_type.
+        If an LLM is configured, attempts PydanticAI-driven execution.
+        Falls back to hardcoded dispatch on LLM unavailability or error.
         """
-        self.logger.info(
-            "Running task",
-            task_type=request.task_type,
-            artifact_id=str(request.artifact_id),
+        with tracer.start_as_current_span("agent.execute") as span:
+            span.set_attribute("agent.code", "firmware")
+            span.set_attribute("session.id", str(self.session_id))
+            span.set_attribute("task.type", request.task_type)
+
+            self.logger.info(
+                "Running task",
+                task_type=request.task_type,
+                artifact_id=str(request.artifact_id),
+            )
+
+            # Try PydanticAI path if LLM is available
+            if is_llm_available() and request.task_type in self.SUPPORTED_TASKS:
+                try:
+                    result = await self._run_with_llm(request)
+                    span.set_attribute("agent.mode", "llm")
+                    return result
+                except Exception as exc:
+                    span.record_exception(exc)
+                    self.logger.warning(
+                        "LLM execution failed, falling back to hardcoded dispatch",
+                        error=str(exc),
+                    )
+
+            # Hardcoded dispatch (fallback)
+            span.set_attribute("agent.mode", "hardcoded")
+            return await self._run_hardcoded(request)
+
+    async def _run_with_llm(self, request: TaskRequest) -> TaskResult:
+        """Execute a task using PydanticAI agent with LLM reasoning."""
+        agent = _get_or_create_pydantic_agent()
+        if agent is None:
+            raise RuntimeError("PydanticAI agent could not be created")
+
+        # Verify artifact exists first
+        artifact = await self.twin.get_artifact(request.artifact_id, branch=request.branch)
+        if artifact is None:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=[
+                    f"Artifact {request.artifact_id} not found on branch '{request.branch}'"
+                ],
+            )
+
+        deps = AgentDependencies(
+            twin=self.twin,
+            mcp_bridge=self.mcp,
+            session_id=str(self.session_id),
+            branch=request.branch,
         )
 
+        prompt = self._build_prompt(request)
+
+        t0 = time.monotonic()
+        result = await agent.run(prompt, deps=deps)
+        elapsed = time.monotonic() - t0
+
+        self.logger.info(
+            "LLM execution completed",
+            task_type=request.task_type,
+            elapsed_s=round(elapsed, 3),
+        )
+
+        firmware_result: FirmwareResult = result.data
+
+        return TaskResult(
+            task_type=request.task_type,
+            artifact_id=request.artifact_id,
+            success=firmware_result.overall_passed,
+            skill_results=firmware_result.tool_calls
+            if firmware_result.tool_calls
+            else [firmware_result.analysis],
+            warnings=(
+                firmware_result.recommendations
+                if not firmware_result.overall_passed
+                else []
+            ),
+        )
+
+    def _build_prompt(self, request: TaskRequest) -> str:
+        """Build a natural language prompt from a structured TaskRequest."""
+        parts = [
+            f"Perform a '{request.task_type}' task on artifact {request.artifact_id}."
+        ]
+        if request.parameters:
+            parts.append(f"Parameters: {request.parameters}")
+        return " ".join(parts)
+
+    # --- Hardcoded dispatch (original implementation) ---
+
+    async def _run_hardcoded(self, request: TaskRequest) -> TaskResult:
+        """Original hardcoded dispatch path."""
         if request.task_type not in self.SUPPORTED_TASKS:
             return TaskResult(
                 task_type=request.task_type,
@@ -130,10 +460,7 @@ class FirmwareAgent:
         return handlers[task_type]
 
     async def _run_generate_hal(self, request: TaskRequest) -> TaskResult:
-        """Generate a Hardware Abstraction Layer for the target MCU.
-
-        Requires 'mcu_family' and 'peripherals' in request.parameters.
-        """
+        """Generate a Hardware Abstraction Layer for the target MCU."""
         mcu_family: str = request.parameters.get("mcu_family", "")
         if not mcu_family:
             return TaskResult(
@@ -193,10 +520,7 @@ class FirmwareAgent:
         )
 
     async def _run_scaffold_driver(self, request: TaskRequest) -> TaskResult:
-        """Scaffold a peripheral driver.
-
-        Requires 'peripheral_type' and 'driver_name' in request.parameters.
-        """
+        """Scaffold a peripheral driver."""
         peripheral_type: str = request.parameters.get("peripheral_type", "")
         if not peripheral_type:
             return TaskResult(
@@ -256,10 +580,7 @@ class FirmwareAgent:
         )
 
     async def _run_configure_rtos(self, request: TaskRequest) -> TaskResult:
-        """Configure an RTOS for the target firmware.
-
-        Requires 'rtos_name' and 'task_definitions' in request.parameters.
-        """
+        """Configure an RTOS for the target firmware."""
         rtos_name: str = request.parameters.get("rtos_name", "")
         if not rtos_name:
             return TaskResult(
@@ -320,11 +641,7 @@ class FirmwareAgent:
         )
 
     async def _run_full_build(self, request: TaskRequest) -> TaskResult:
-        """Run a full firmware build pipeline (HAL + driver + RTOS).
-
-        Runs all applicable steps sequentially and aggregates results.
-        Skips individual steps if their required parameters are not provided.
-        """
+        """Run a full firmware build pipeline (HAL + driver + RTOS)."""
         all_results: list[dict[str, Any]] = []
         all_errors: list[str] = []
         all_warnings: list[str] = []

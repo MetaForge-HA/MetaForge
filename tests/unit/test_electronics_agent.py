@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from domain_agents.electronics.agent import ElectronicsAgent, TaskRequest, TaskResult
+from domain_agents.electronics.agent import (
+    ElectronicsAgent,
+    ElectronicsResult,
+    TaskRequest,
+    TaskResult,
+)
 from skill_registry.mcp_bridge import InMemoryMcpBridge
 
 
@@ -457,3 +463,69 @@ class TestTaskResult:
         assert len(res.errors) == 1
         assert len(res.warnings) == 1
         assert len(res.skill_results) == 1
+
+
+# --- PydanticAI integration ---
+
+
+class TestElectronicsResult:
+    """Tests for the ElectronicsResult structured output model."""
+
+    def test_electronics_result_defaults(self):
+        result = ElectronicsResult()
+        assert result.overall_passed is True
+        assert result.total_erc_errors == 0
+        assert result.total_drc_errors == 0
+        assert result.artifacts == []
+        assert result.analysis == {}
+
+    def test_electronics_result_with_data(self):
+        result = ElectronicsResult(
+            overall_passed=False,
+            total_erc_errors=3,
+            total_drc_errors=1,
+            recommendations=["Fix unconnected pins"],
+            tool_calls=[{"tool": "run_erc", "result": "fail"}],
+        )
+        assert not result.overall_passed
+        assert result.total_erc_errors == 3
+        assert len(result.tool_calls) == 1
+
+
+class TestElectronicsHardcodedFallback:
+    """Tests verifying hardcoded dispatch when LLM is unavailable."""
+
+    async def test_fallback_when_no_llm_configured(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Agent should use hardcoded dispatch when METAFORGE_LLM_PROVIDER is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="run_erc",
+                artifact_id=uuid4(),
+                parameters={"schematic_file": "eda/kicad/main.kicad_sch"},
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is True
+            assert result.task_type == "run_erc"
+
+    async def test_unsupported_task_in_hardcoded_mode(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Unsupported tasks should fail gracefully in hardcoded mode."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = ElectronicsAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="unsupported_task",
+                artifact_id=uuid4(),
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is False
+            assert any("Unsupported task type" in e for e in result.errors)

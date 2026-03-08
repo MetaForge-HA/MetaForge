@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from domain_agents.simulation.agent import SimulationAgent, TaskRequest, TaskResult
+from domain_agents.simulation.agent import (
+    SimulationAgent,
+    SimulationResult,
+    TaskRequest,
+    TaskResult,
+)
 from skill_registry.mcp_bridge import InMemoryMcpBridge
 
 
@@ -430,3 +436,74 @@ class TestTaskResult:
         assert len(res.errors) == 1
         assert len(res.warnings) == 1
         assert len(res.skill_results) == 1
+
+
+# --- PydanticAI integration ---
+
+
+class TestSimulationResult:
+    """Tests for the SimulationResult structured output model."""
+
+    def test_simulation_result_defaults(self):
+        result = SimulationResult()
+        assert result.overall_passed is True
+        assert result.convergence_achieved is True
+        assert result.artifacts == []
+        assert result.analysis == {}
+
+    def test_simulation_result_with_data(self):
+        result = SimulationResult(
+            overall_passed=False,
+            convergence_achieved=False,
+            recommendations=["Refine mesh in critical area"],
+            tool_calls=[
+                {"tool": "run_fea", "result": "fail"},
+                {"tool": "run_spice", "result": "pass"},
+            ],
+        )
+        assert not result.overall_passed
+        assert not result.convergence_achieved
+        assert len(result.tool_calls) == 2
+        assert len(result.recommendations) == 1
+
+
+class TestSimulationHardcodedFallback:
+    """Tests verifying hardcoded dispatch when LLM is unavailable."""
+
+    async def test_fallback_when_no_llm_configured(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Agent should use hardcoded dispatch when METAFORGE_LLM_PROVIDER is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = SimulationAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="run_spice",
+                artifact_id=uuid4(),
+                parameters={
+                    "netlist_path": "sim/power_supply.cir",
+                    "analysis_type": "dc",
+                },
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is True
+            assert result.task_type == "run_spice"
+
+    async def test_unsupported_task_in_hardcoded_mode(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Unsupported tasks should fail gracefully in hardcoded mode."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = SimulationAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="unsupported_task",
+                artifact_id=uuid4(),
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is False
+            assert any("Unsupported task type" in e for e in result.errors)

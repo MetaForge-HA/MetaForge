@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from domain_agents.firmware.agent import FirmwareAgent, TaskRequest, TaskResult
+from domain_agents.firmware.agent import (
+    FirmwareAgent,
+    FirmwareResult,
+    TaskRequest,
+    TaskResult,
+)
 from skill_registry.mcp_bridge import InMemoryMcpBridge
 
 
@@ -383,3 +389,70 @@ class TestTaskResult:
         assert len(res.errors) == 1
         assert len(res.warnings) == 1
         assert len(res.skill_results) == 1
+
+
+# --- PydanticAI integration ---
+
+
+class TestFirmwareResult:
+    """Tests for the FirmwareResult structured output model."""
+
+    def test_firmware_result_defaults(self):
+        result = FirmwareResult()
+        assert result.overall_passed is True
+        assert result.generated_files == []
+        assert result.artifacts == []
+        assert result.analysis == {}
+
+    def test_firmware_result_with_data(self):
+        result = FirmwareResult(
+            overall_passed=True,
+            generated_files=["hal_gpio.h", "hal_gpio.c"],
+            artifacts=[{"type": "hal", "mcu": "STM32F4"}],
+            tool_calls=[{"tool": "generate_hal", "result": "success"}],
+        )
+        assert result.overall_passed is True
+        assert len(result.generated_files) == 2
+        assert len(result.tool_calls) == 1
+
+
+class TestFirmwareHardcodedFallback:
+    """Tests verifying hardcoded dispatch when LLM is unavailable."""
+
+    async def test_fallback_when_no_llm_configured(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Agent should use hardcoded dispatch when METAFORGE_LLM_PROVIDER is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = FirmwareAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="generate_hal",
+                artifact_id=uuid4(),
+                parameters={
+                    "mcu_family": "STM32F4",
+                    "peripherals": ["GPIO", "SPI"],
+                },
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is True
+            assert result.task_type == "generate_hal"
+
+    async def test_unsupported_task_in_hardcoded_mode(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Unsupported tasks should fail gracefully in hardcoded mode."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = FirmwareAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="unsupported_task",
+                artifact_id=uuid4(),
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is False
+            assert any("Unsupported task type" in e for e in result.errors)

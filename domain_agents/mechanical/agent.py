@@ -2,17 +2,28 @@
 
 Orchestrates skill execution for mechanical design validation:
 stress analysis, tolerance checking, and mesh generation.
+
+Supports two modes:
+- **LLM mode**: PydanticAI Agent() with LLM-driven tool selection
+- **Hardcoded mode**: Deterministic dispatch by task_type (fallback)
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Coroutine
 from typing import Any
 from uuid import UUID, uuid4
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from domain_agents.base_agent import (
+    AgentDependencies,
+    AgentResult,
+    get_llm_model,
+    is_llm_available,
+)
 from domain_agents.mechanical.skills.check_tolerance.handler import (
     CheckToleranceHandler,
 )
@@ -33,10 +44,39 @@ from domain_agents.mechanical.skills.generate_mesh.handler import (
 from domain_agents.mechanical.skills.generate_mesh.schema import (
     GenerateMeshInput,
 )
+from observability.tracing import get_tracer
 from skill_registry.mcp_bridge import McpBridge
 from skill_registry.skill_base import SkillContext
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
+tracer = get_tracer("domain_agents.mechanical")
+
+
+# ---------------------------------------------------------------------------
+# Domain-specific result model for PydanticAI structured output
+# ---------------------------------------------------------------------------
+
+
+class MechanicalResult(AgentResult):
+    """Structured output from the mechanical agent's PydanticAI run."""
+
+    overall_passed: bool = Field(
+        default=True,
+        description="Whether all mechanical checks passed",
+    )
+    max_stress_mpa: float = Field(
+        default=0.0,
+        description="Maximum stress found across all analyses",
+    )
+    critical_region: str = Field(
+        default="",
+        description="Region with the highest stress",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible request/result models
+# ---------------------------------------------------------------------------
 
 
 class TaskRequest(BaseModel):
@@ -61,11 +101,225 @@ class TaskResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+# ---------------------------------------------------------------------------
+# PydanticAI agent factory (lazy, created once per process)
+# ---------------------------------------------------------------------------
+
+_pydantic_agent: Any | None = None
+
+MECHANICAL_SYSTEM_PROMPT = """\
+You are an expert mechanical engineer working within the MetaForge design \
+validation platform. You have deep knowledge of structural mechanics, FEA, \
+tolerance stack-up analysis, mesh generation, and manufacturing processes.
+
+You have access to the following tools:
+
+- **validate_stress**: Run FEA stress validation on a meshed CAD model using \
+CalculiX. Provide mesh_file_path, load_case, and stress constraints.
+- **generate_mesh**: Generate a finite element mesh from a CAD file using \
+FreeCAD/Netgen. Provide cad_file path and meshing parameters.
+- **check_tolerance**: Check dimensional tolerances against manufacturing \
+process capabilities. Provide tolerance specs and manufacturing process details.
+
+Given a user request, determine which tools to call and in what order. \
+Analyze the results and provide a clear engineering assessment with pass/fail \
+status, safety factors, and recommendations.
+
+Always validate that required parameters are available before calling a tool. \
+If parameters are missing, note what is needed in your recommendations.
+"""
+
+
+def _get_or_create_pydantic_agent() -> Any:
+    """Lazily create the PydanticAI Agent for mechanical engineering."""
+    global _pydantic_agent
+    if _pydantic_agent is not None:
+        return _pydantic_agent
+
+    try:
+        from pydantic_ai import Agent, RunContext
+    except ImportError:
+        logger.warning("pydantic_ai_not_installed")
+        return None
+
+    model = get_llm_model()
+    if model is None:
+        return None
+
+    agent = Agent(
+        model,
+        system_prompt=MECHANICAL_SYSTEM_PROMPT,
+        result_type=MechanicalResult,
+        deps_type=AgentDependencies,
+    )
+
+    # -- Tool: validate_stress ------------------------------------------------
+
+    @agent.tool
+    async def validate_stress(
+        ctx: RunContext[AgentDependencies],
+        mesh_file_path: str,
+        load_case: str,
+        constraints: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Run FEA stress validation using CalculiX.
+
+        Args:
+            mesh_file_path: Path to the mesh file (.inp format).
+            load_case: Load case identifier (e.g. 'gravity', 'thermal').
+            constraints: List of stress constraints, each with
+                max_von_mises_mpa (float) and safety_factor (float).
+        """
+        fea_result = await ctx.deps.mcp_bridge.invoke(
+            "calculix.run_fea",
+            {
+                "mesh_file": mesh_file_path,
+                "load_case": load_case,
+                "analysis_type": "static_stress",
+            },
+        )
+
+        stress_data: dict[str, Any] = fea_result.get("max_von_mises", {})
+        results: list[dict[str, Any]] = []
+        all_passed = True
+
+        for constraint in constraints:
+            max_allowable = float(constraint.get("max_von_mises_mpa", float("inf")))
+            safety_factor = float(constraint.get("safety_factor", 1.5))
+            allowable = max_allowable / safety_factor
+
+            for region, stress_val in stress_data.items():
+                passed = float(stress_val) <= allowable
+                if not passed:
+                    all_passed = False
+                results.append({
+                    "region": region,
+                    "stress_mpa": float(stress_val),
+                    "allowable_mpa": allowable,
+                    "passed": passed,
+                })
+
+        return {
+            "skill": "validate_stress",
+            "fea_result": fea_result,
+            "constraint_results": results,
+            "overall_passed": all_passed,
+        }
+
+    # -- Tool: generate_mesh --------------------------------------------------
+
+    @agent.tool
+    async def generate_mesh(
+        ctx: RunContext[AgentDependencies],
+        cad_file: str,
+        element_size: float = 1.0,
+        algorithm: str = "netgen",
+    ) -> dict[str, Any]:
+        """Generate a finite element mesh from a CAD file.
+
+        Args:
+            cad_file: Path to the CAD file (.step, .brep, etc.).
+            element_size: Target element size in mm.
+            algorithm: Meshing algorithm ('netgen', 'gmsh').
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        skill_input = GenerateMeshInput(
+            artifact_id=UUID("00000000-0000-0000-0000-000000000000"),
+            cad_file=cad_file,
+            element_size=element_size,
+            algorithm=algorithm,
+        )
+
+        handler = GenerateMeshHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "generate_mesh", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "generate_mesh",
+            "success": True,
+            "mesh_file": output.mesh_file,
+            "num_nodes": output.num_nodes,
+            "num_elements": output.num_elements,
+            "quality_acceptable": output.quality_acceptable,
+        }
+
+    # -- Tool: check_tolerance ------------------------------------------------
+
+    @agent.tool
+    async def check_tolerance(
+        ctx: RunContext[AgentDependencies],
+        tolerances: list[dict[str, Any]],
+        manufacturing_process: dict[str, Any],
+        material: str = "aluminum_6061",
+    ) -> dict[str, Any]:
+        """Check dimensional tolerances against manufacturing process capabilities.
+
+        Args:
+            tolerances: List of tolerance specifications.
+            manufacturing_process: Manufacturing process details.
+            material: Material identifier.
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        tol_specs = [ToleranceSpec.model_validate(t) for t in tolerances]
+        process = ManufacturingProcess.model_validate(manufacturing_process)
+
+        skill_input = CheckToleranceInput(
+            artifact_id=UUID("00000000-0000-0000-0000-000000000000"),
+            tolerances=tol_specs,
+            manufacturing_process=process,
+            material=material,
+        )
+
+        handler = CheckToleranceHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "check_tolerance", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "check_tolerance",
+            "success": True,
+            "overall_status": output.overall_status,
+            "total_dimensions_checked": output.total_dimensions_checked,
+            "summary": output.summary,
+        }
+
+    _pydantic_agent = agent
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# Main agent class
+# ---------------------------------------------------------------------------
+
+
 class MechanicalAgent:
     """Mechanical engineering domain agent.
 
     Orchestrates skill execution for mechanical design validation.
     The agent is stateless -- all state lives in the Digital Twin.
+
+    Supports two execution modes:
+    - PydanticAI mode: LLM-driven tool selection (when METAFORGE_LLM_PROVIDER is set)
+    - Hardcoded mode: Deterministic dispatch by task_type (fallback)
 
     Usage:
         twin = InMemoryTwinAPI.create()
@@ -97,14 +351,104 @@ class MechanicalAgent:
     async def run_task(self, request: TaskRequest) -> TaskResult:
         """Execute a mechanical engineering task.
 
-        Routes to the appropriate handler based on task_type.
+        If an LLM is configured, attempts PydanticAI-driven execution.
+        Falls back to hardcoded dispatch on LLM unavailability or error.
         """
-        self.logger.info(
-            "Running task",
-            task_type=request.task_type,
-            artifact_id=str(request.artifact_id),
+        with tracer.start_as_current_span("agent.execute") as span:
+            span.set_attribute("agent.code", "mechanical")
+            span.set_attribute("session.id", str(self.session_id))
+            span.set_attribute("task.type", request.task_type)
+
+            self.logger.info(
+                "Running task",
+                task_type=request.task_type,
+                artifact_id=str(request.artifact_id),
+            )
+
+            # Try PydanticAI path if LLM is available
+            if is_llm_available() and request.task_type in self.SUPPORTED_TASKS:
+                try:
+                    result = await self._run_with_llm(request)
+                    span.set_attribute("agent.mode", "llm")
+                    return result
+                except Exception as exc:
+                    span.record_exception(exc)
+                    self.logger.warning(
+                        "LLM execution failed, falling back to hardcoded dispatch",
+                        error=str(exc),
+                    )
+
+            # Hardcoded dispatch (fallback)
+            span.set_attribute("agent.mode", "hardcoded")
+            return await self._run_hardcoded(request)
+
+    async def _run_with_llm(self, request: TaskRequest) -> TaskResult:
+        """Execute a task using PydanticAI agent with LLM reasoning."""
+        agent = _get_or_create_pydantic_agent()
+        if agent is None:
+            raise RuntimeError("PydanticAI agent could not be created")
+
+        # Verify artifact exists first
+        artifact = await self.twin.get_artifact(request.artifact_id, branch=request.branch)
+        if artifact is None:
+            return TaskResult(
+                task_type=request.task_type,
+                artifact_id=request.artifact_id,
+                success=False,
+                errors=[
+                    f"Artifact {request.artifact_id} not found on branch '{request.branch}'"
+                ],
+            )
+
+        deps = AgentDependencies(
+            twin=self.twin,
+            mcp_bridge=self.mcp,
+            session_id=str(self.session_id),
+            branch=request.branch,
         )
 
+        # Build a natural language prompt from the task request
+        prompt = self._build_prompt(request)
+
+        t0 = time.monotonic()
+        result = await agent.run(prompt, deps=deps)
+        elapsed = time.monotonic() - t0
+
+        self.logger.info(
+            "LLM execution completed",
+            task_type=request.task_type,
+            elapsed_s=round(elapsed, 3),
+        )
+
+        mechanical_result: MechanicalResult = result.data
+
+        return TaskResult(
+            task_type=request.task_type,
+            artifact_id=request.artifact_id,
+            success=mechanical_result.overall_passed,
+            skill_results=mechanical_result.tool_calls
+            if mechanical_result.tool_calls
+            else [mechanical_result.analysis],
+            warnings=(
+                mechanical_result.recommendations
+                if not mechanical_result.overall_passed
+                else []
+            ),
+        )
+
+    def _build_prompt(self, request: TaskRequest) -> str:
+        """Build a natural language prompt from a structured TaskRequest."""
+        parts = [
+            f"Perform a '{request.task_type}' task on artifact {request.artifact_id}."
+        ]
+        if request.parameters:
+            parts.append(f"Parameters: {request.parameters}")
+        return " ".join(parts)
+
+    # --- Hardcoded dispatch (original implementation) ---
+
+    async def _run_hardcoded(self, request: TaskRequest) -> TaskResult:
+        """Original hardcoded dispatch path."""
         if request.task_type not in self.SUPPORTED_TASKS:
             return TaskResult(
                 task_type=request.task_type,

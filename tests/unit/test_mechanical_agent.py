@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from domain_agents.mechanical.agent import MechanicalAgent, TaskRequest, TaskResult
+from domain_agents.base_agent import AgentDependencies, AgentResult, get_llm_model, is_llm_available
+from domain_agents.mechanical.agent import (
+    MechanicalAgent,
+    MechanicalResult,
+    TaskRequest,
+    TaskResult,
+)
 from skill_registry.mcp_bridge import InMemoryMcpBridge
 
 
@@ -311,3 +318,152 @@ class TestTaskResult:
         assert len(res.errors) == 1
         assert len(res.warnings) == 1
         assert len(res.skill_results) == 1
+
+
+# --- PydanticAI integration ---
+
+
+class TestMechanicalResult:
+    """Tests for the MechanicalResult structured output model."""
+
+    def test_mechanical_result_defaults(self):
+        result = MechanicalResult()
+        assert result.overall_passed is True
+        assert result.max_stress_mpa == 0.0
+        assert result.critical_region == ""
+        assert result.artifacts == []
+        assert result.analysis == {}
+        assert result.recommendations == []
+        assert result.tool_calls == []
+
+    def test_mechanical_result_with_data(self):
+        result = MechanicalResult(
+            overall_passed=False,
+            max_stress_mpa=250.5,
+            critical_region="bracket_mount",
+            artifacts=[{"type": "mesh", "path": "mesh/bracket.inp"}],
+            analysis={"solver": "calculix", "time_s": 12.5},
+            recommendations=["Increase wall thickness"],
+            tool_calls=[{"tool": "validate_stress", "result": "fail"}],
+        )
+        assert not result.overall_passed
+        assert result.max_stress_mpa == 250.5
+        assert result.critical_region == "bracket_mount"
+        assert len(result.artifacts) == 1
+        assert len(result.tool_calls) == 1
+
+
+class TestAgentDependencies:
+    """Tests for AgentDependencies dataclass."""
+
+    def test_agent_dependencies_creation(self):
+        twin = MagicMock()
+        mcp = InMemoryMcpBridge()
+        deps = AgentDependencies(
+            twin=twin,
+            mcp_bridge=mcp,
+            session_id="test-session-123",
+            branch="feature-1",
+        )
+        assert deps.twin is twin
+        assert deps.mcp_bridge is mcp
+        assert deps.session_id == "test-session-123"
+        assert deps.branch == "feature-1"
+
+    def test_agent_dependencies_defaults(self):
+        deps = AgentDependencies(
+            twin=MagicMock(),
+            mcp_bridge=InMemoryMcpBridge(),
+            session_id="test",
+        )
+        assert deps.branch == "main"
+
+
+class TestLlmConfiguration:
+    """Tests for LLM configuration helpers."""
+
+    def test_no_provider_returns_none(self):
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            os.environ.pop("METAFORGE_LLM_MODEL", None)
+            assert get_llm_model() is None
+            assert is_llm_available() is False
+
+    def test_openai_provider(self):
+        with patch.dict(os.environ, {"METAFORGE_LLM_PROVIDER": "openai"}, clear=False):
+            os.environ.pop("METAFORGE_LLM_MODEL", None)
+            model = get_llm_model()
+            assert model == "openai:gpt-4o"
+            assert is_llm_available() is True
+
+    def test_openai_with_custom_model(self):
+        with patch.dict(
+            os.environ,
+            {"METAFORGE_LLM_PROVIDER": "openai", "METAFORGE_LLM_MODEL": "gpt-4-turbo"},
+            clear=False,
+        ):
+            assert get_llm_model() == "openai:gpt-4-turbo"
+
+    def test_anthropic_provider(self):
+        with patch.dict(
+            os.environ,
+            {"METAFORGE_LLM_PROVIDER": "anthropic"},
+            clear=False,
+        ):
+            os.environ.pop("METAFORGE_LLM_MODEL", None)
+            model = get_llm_model()
+            assert model == "anthropic:claude-sonnet-4-20250514"
+
+    def test_unknown_provider_returns_none(self):
+        with patch.dict(
+            os.environ,
+            {"METAFORGE_LLM_PROVIDER": "unknown_provider"},
+            clear=False,
+        ):
+            assert get_llm_model() is None
+
+
+class TestHardcodedFallback:
+    """Tests verifying hardcoded dispatch when LLM is unavailable."""
+
+    async def test_fallback_when_no_llm_configured(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Agent should use hardcoded dispatch when METAFORGE_LLM_PROVIDER is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = MechanicalAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="validate_stress",
+                artifact_id=uuid4(),
+                parameters={
+                    "mesh_file_path": "mesh/bracket.inp",
+                    "load_case": "gravity",
+                    "constraints": [
+                        {"max_von_mises_mpa": 300.0, "safety_factor": 1.5},
+                    ],
+                },
+            )
+            result = await agent.run_task(request)
+
+            # Should still work via hardcoded path
+            assert result.success is True
+            assert result.task_type == "validate_stress"
+
+    async def test_unsupported_task_in_hardcoded_mode(
+        self, mock_twin: AsyncMock, mcp_bridge: InMemoryMcpBridge
+    ):
+        """Unsupported tasks should fail gracefully in hardcoded mode."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("METAFORGE_LLM_PROVIDER", None)
+            agent = MechanicalAgent(twin=mock_twin, mcp=mcp_bridge)
+
+            request = TaskRequest(
+                task_type="unsupported_task",
+                artifact_id=uuid4(),
+            )
+            result = await agent.run_task(request)
+
+            assert result.success is False
+            assert any("Unsupported task type" in e for e in result.errors)
