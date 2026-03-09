@@ -4,15 +4,32 @@ from __future__ import annotations
 
 import structlog
 
+from digital_twin.knowledge.embedding_service import EmbeddingService
+from digital_twin.knowledge.store import KnowledgeEntry, KnowledgeStore, KnowledgeType
 from observability.tracing import get_tracer
 from skill_registry.skill_base import SkillBase
-from twin_core.knowledge.models import KnowledgeType
-from twin_core.knowledge.store import KnowledgeStore
 
 from .schema import IngestKnowledgeInput, IngestKnowledgeOutput
 
 logger = structlog.get_logger(__name__)
 tracer = get_tracer("skill.ingest_knowledge")
+
+# Chunking parameters
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 64
+
+
+def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split text into overlapping chunks by character count."""
+    if len(text) <= chunk_size:
+        return [text]
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
 
 
 class IngestKnowledgeHandler(SkillBase[IngestKnowledgeInput, IngestKnowledgeOutput]):
@@ -21,9 +38,15 @@ class IngestKnowledgeHandler(SkillBase[IngestKnowledgeInput, IngestKnowledgeOutp
     input_type = IngestKnowledgeInput
     output_type = IngestKnowledgeOutput
 
-    def __init__(self, context: object, knowledge_store: KnowledgeStore) -> None:
+    def __init__(
+        self,
+        context: object,
+        knowledge_store: KnowledgeStore,
+        embedding_service: EmbeddingService | None = None,
+    ) -> None:
         super().__init__(context)  # type: ignore[arg-type]
         self._store = knowledge_store
+        self._embedding_service = embedding_service
 
     async def execute(self, input_data: IngestKnowledgeInput) -> IngestKnowledgeOutput:
         """Chunk and ingest content into the knowledge store."""
@@ -37,10 +60,10 @@ class IngestKnowledgeHandler(SkillBase[IngestKnowledgeInput, IngestKnowledgeOutp
                 knowledge_type = KnowledgeType(input_data.knowledge_type)
             except ValueError:
                 self.logger.warning(
-                    "Unknown knowledge_type, defaulting to GENERAL",
+                    "Unknown knowledge_type, defaulting to design_decision",
                     knowledge_type=input_data.knowledge_type,
                 )
-                knowledge_type = KnowledgeType.GENERAL
+                knowledge_type = KnowledgeType.DESIGN_DECISION
 
             self.logger.info(
                 "Ingesting knowledge",
@@ -51,28 +74,37 @@ class IngestKnowledgeHandler(SkillBase[IngestKnowledgeInput, IngestKnowledgeOutp
 
             metadata = dict(input_data.metadata) if input_data.metadata else {}
 
-            # Use chunked ingestion for long content, single ingestion for short
-            entries = await self._store.ingest_chunked(
-                content=input_data.content,
-                knowledge_type=knowledge_type,
-                source=input_data.source,
-                metadata=metadata,
-            )
+            # Chunk the content
+            chunks = _chunk_text(input_data.content)
+            entries: list[KnowledgeEntry] = []
 
-            # The first entry is the "primary" entry
+            for chunk in chunks:
+                # Generate embedding if service available
+                embedding: list[float] = []
+                if self._embedding_service is not None:
+                    embedding = await self._embedding_service.embed(chunk)
+
+                entry = KnowledgeEntry(
+                    content=chunk,
+                    embedding=embedding,
+                    knowledge_type=knowledge_type,
+                    metadata=metadata,
+                )
+                stored = await self._store.store(entry)
+                entries.append(stored)
+
             primary = entries[0]
-            embedded = primary.has_embedding
 
             self.logger.info(
                 "Knowledge ingestion completed",
                 entry_id=str(primary.id),
                 chunk_count=len(entries),
-                embedded=embedded,
+                embedded=bool(primary.embedding),
             )
 
             return IngestKnowledgeOutput(
                 entry_id=str(primary.id),
-                embedded=embedded,
+                embedded=bool(primary.embedding),
                 chunk_count=len(entries),
                 content_length=len(input_data.content),
             )

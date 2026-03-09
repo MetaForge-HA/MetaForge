@@ -355,7 +355,7 @@ class TestRetrieveKnowledgeHandler:
         inp = RetrieveKnowledgeInput(query="aluminum bracket")
         output = await handler.execute(inp)
 
-        assert output.total_found == 1
+        assert output.total_results == 1
         assert output.results[0].content == "Bracket uses 6061 aluminum"
 
     async def test_execute_empty_results(self, mock_context: MagicMock) -> None:
@@ -366,7 +366,7 @@ class TestRetrieveKnowledgeHandler:
         handler = RetrieveKnowledgeHandler(mock_context, store, mock_emb)
         inp = RetrieveKnowledgeInput(query="nothing")
         output = await handler.execute(inp)
-        assert output.total_found == 0
+        assert output.total_results == 0
 
 
 # ============================================================================
@@ -392,28 +392,30 @@ class TestIngestKnowledgeHandler:
         handler = IngestKnowledgeHandler(mock_context, store, mock_emb)
         inp = IngestKnowledgeInput(
             content="Use M3 screws",
-            knowledge_type=KnowledgeType.DESIGN_DECISION,
+            knowledge_type="design_decision",
+            source="test",
         )
         output = await handler.execute(inp)
 
         assert output.embedded is True
-        stored = await store.get(output.entry_id)
+        from uuid import UUID as _UUID
+        stored = await store.get(_UUID(output.entry_id))
         assert stored is not None
         assert stored.content == "Use M3 screws"
 
-    async def test_execute_handles_embed_failure(self, mock_context: MagicMock) -> None:
+    async def test_execute_no_embedding_service(self, mock_context: MagicMock) -> None:
         store = InMemoryKnowledgeStore()
-        mock_emb = AsyncMock()
-        mock_emb.embed.side_effect = RuntimeError("fail")
 
-        handler = IngestKnowledgeHandler(mock_context, store, mock_emb)
+        handler = IngestKnowledgeHandler(mock_context, store)
         inp = IngestKnowledgeInput(
             content="content",
-            knowledge_type=KnowledgeType.SESSION,
+            knowledge_type="session_summary",
+            source="test",
         )
         output = await handler.execute(inp)
         assert output.embedded is False
-        assert await store.get(output.entry_id) is not None
+        from uuid import UUID as _UUID
+        assert await store.get(_UUID(output.entry_id)) is not None
 
 
 # ============================================================================

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import structlog
 
+from digital_twin.knowledge.embedding_service import EmbeddingService
+from digital_twin.knowledge.store import KnowledgeStore
 from observability.tracing import get_tracer
 from skill_registry.skill_base import SkillBase
 from twin_core.knowledge.models import KnowledgeType
-from twin_core.knowledge.store import KnowledgeStore
 
 from .schema import KnowledgeResult, RetrieveKnowledgeInput, RetrieveKnowledgeOutput
 
@@ -21,9 +22,15 @@ class RetrieveKnowledgeHandler(SkillBase[RetrieveKnowledgeInput, RetrieveKnowled
     input_type = RetrieveKnowledgeInput
     output_type = RetrieveKnowledgeOutput
 
-    def __init__(self, context: object, knowledge_store: KnowledgeStore) -> None:
+    def __init__(
+        self,
+        context: object,
+        knowledge_store: KnowledgeStore,
+        embedding_service: EmbeddingService | None = None,
+    ) -> None:
         super().__init__(context)  # type: ignore[arg-type]
         self._store = knowledge_store
+        self._embedding_service = embedding_service
 
     async def execute(self, input_data: RetrieveKnowledgeInput) -> RetrieveKnowledgeOutput:
         """Execute semantic search over the knowledge store."""
@@ -50,22 +57,29 @@ class RetrieveKnowledgeHandler(SkillBase[RetrieveKnowledgeInput, RetrieveKnowled
                 limit=input_data.limit,
             )
 
+            # Embed the query text, then search by embedding vector
+            if self._embedding_service is not None:
+                query_embedding = await self._embedding_service.embed(input_data.query)
+            else:
+                # Fallback: use a zero vector (will match nothing meaningfully)
+                query_embedding = [0.0] * 384
+
             search_results = await self._store.search(
-                query=input_data.query,
+                embedding=query_embedding,
                 knowledge_type=knowledge_type_filter,
                 limit=input_data.limit,
             )
 
             results = [
                 KnowledgeResult(
-                    entry_id=str(r.entry.id),
-                    content=r.entry.content,
-                    knowledge_type=r.entry.knowledge_type.value,
-                    source=r.entry.source,
-                    score=r.score,
-                    metadata=r.entry.metadata,
+                    entry_id=str(entry.id),
+                    content=entry.content,
+                    knowledge_type=str(entry.knowledge_type),
+                    source=str(entry.source_artifact_id) if entry.source_artifact_id else "",
+                    score=0.0,
+                    metadata=entry.metadata or {},
                 )
-                for r in search_results
+                for entry in search_results
             ]
 
             self.logger.info(
