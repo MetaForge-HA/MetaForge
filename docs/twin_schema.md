@@ -331,6 +331,132 @@ class AgentNode(NodeBase):
 
 *Source: `twin_core/models/agent.py`*
 
+### 2.6 BOMItem
+
+A BOMItem represents a single line item in a Bill of Materials, with procurement and AAS (Asset Administration Shell) compatibility fields.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.BOM_ITEM` |
+| `part_number` | `str` | Yes | Manufacturer part number |
+| `manufacturer` | `str` | Yes | Manufacturer name |
+| `description` | `str` | No | Part description |
+| `quantity` | `int` | No | Quantity used in design (default: 1) |
+| `reference_designators` | `list[str]` | No | Reference designators (e.g., `["R1", "R2"]`) |
+| `unit_cost` | `float` | No | Per-unit cost in USD |
+| `specifications` | `dict` | No | Key-value specs (see AAS conventions in Appendix A) |
+| `global_asset_id` | `str` | No | URN/IRI for AAS compatibility (see Appendix A) |
+| `supplier` | `str` | No | Primary procurement/distributor source (distinct from manufacturer) |
+
+```python
+class BOMItem(NodeBase):
+    id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.BOM_ITEM
+    part_number: str
+    manufacturer: str
+    description: str = ""
+    quantity: int = 1
+    reference_designators: list[str] = Field(default_factory=list)
+    unit_cost: float | None = None
+    specifications: dict = Field(default_factory=dict)
+    global_asset_id: str | None = None
+    supplier: str | None = None
+```
+
+*Source: `twin_core/models/bom_item.py`*
+
+### 2.7 DeviceInstance
+
+A DeviceInstance represents a specific manufactured unit (serial-number-level) of a product, used for field telemetry and after-sales tracking.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.DEVICE_INSTANCE` |
+| `serial_number` | `str` | Yes | Unique serial number of the unit |
+| `product_id` | `str` | Yes | Product identifier this unit belongs to |
+| `firmware_version` | `str` | No | Currently running firmware version |
+| `hardware_revision` | `str` | No | Hardware revision (e.g., `"rev-C"`) |
+| `manufactured_at` | `datetime` | No | Manufacturing timestamp |
+| `provisioned_at` | `datetime` | No | Provisioning/activation timestamp |
+| `metadata` | `dict` | No | Additional key-value metadata |
+| `global_asset_id` | `str` | No | URN/IRI for AAS compatibility (see Appendix A) |
+
+```python
+class DeviceInstance(NodeBase):
+    id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.DEVICE_INSTANCE
+    serial_number: str
+    product_id: str
+    firmware_version: str = ""
+    hardware_revision: str = ""
+    manufactured_at: datetime | None = None
+    provisioned_at: datetime | None = None
+    metadata: dict = Field(default_factory=dict)
+    global_asset_id: str | None = None
+```
+
+*Source: `twin_core/models/device_instance.py`*
+
+### 2.8 TwinModel
+
+A TwinModel represents a product-level digital twin definition that aggregates artifacts at a specific version.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.TWIN_MODEL` |
+| `product_id` | `str` | Yes | Product identifier |
+| `version` | `str` | Yes | Product version (e.g., `"1.0.0"`) |
+| `name` | `str` | Yes | Human-readable name |
+| `description` | `str` | No | Product description |
+| `created_at` | `datetime` | Yes | Creation timestamp |
+| `metadata` | `dict` | No | Additional key-value metadata |
+| `global_asset_id` | `str` | No | URN/IRI for AAS compatibility (see Appendix A) |
+
+```python
+class TwinModel(NodeBase):
+    id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.TWIN_MODEL
+    product_id: str
+    version: str
+    name: str
+    description: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict = Field(default_factory=dict)
+    global_asset_id: str | None = None
+```
+
+*Source: `twin_core/models/twin_model.py`*
+
+### 2.9 DesignElement
+
+A DesignElement represents a logical design block (sub-assembly, module, functional block) with AAS-aligned parameters.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | `UUID` | Yes | Unique identifier (inherited from `NodeBase`) |
+| `node_type` | `NodeType` | Yes | Always `NodeType.DESIGN_ELEMENT` |
+| `name` | `str` | Yes | Human-readable name |
+| `element_type` | `str` | No | Type of element (e.g., `"sub-assembly"`, `"module"`) |
+| `domain` | `str` | No | Engineering domain |
+| `parameters` | `dict` | No | Key-value parameters (see AAS conventions in Appendix A) |
+| `metadata` | `dict` | No | Additional key-value metadata |
+
+```python
+class DesignElement(NodeBase):
+    id: UUID = Field(default_factory=uuid4)
+    node_type: NodeType = NodeType.DESIGN_ELEMENT
+    name: str
+    element_type: str = ""
+    domain: str = ""
+    parameters: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+```
+
+*Source: `twin_core/models/design_element.py`*
+
 ---
 
 ## 3. Edge Types
@@ -1094,8 +1220,48 @@ Phase 1 implements the full schema defined in this document. The following node 
 - Extended Component specs for electronics parts (voltage rating, current rating, ESR)
 - New edge type: `ROUTED_TO` (net-to-pad routing in PCB)
 
+### Phase 2 AAS Additions
+
+- `BOMItem` node type with `global_asset_id` and `supplier` properties (MET-160, MET-161)
+- `DesignElement` node type with AAS-aligned `parameters` keys (MET-162)
+- `TwinModel` node type with `global_asset_id` for product-level twin identification
+- `DeviceInstance` node type with `global_asset_id` for serial-number-level tracking
+
 ### Phase 3 Additions
 
 - Supply chain tracking nodes (Supplier, Order)
-- Telemetry nodes (FieldData, DeviceInstance)
+- Extended DeviceInstance telemetry (FieldData)
 - Additional edge types for after-sales and sustainability tracking
+
+---
+
+## Appendix A: AAS-Aligned Key Conventions
+
+The following tables document recommended keys for dictionary properties on graph nodes. These keys align with the **Asset Administration Shell (AAS)** submodel standards to enable interoperability with IEC 63278 / IDTA tooling.
+
+### A.1 `globalAssetId` URN Conventions
+
+The `global_asset_id` property on `BOMItem`, `DeviceInstance`, and `TwinModel` follows URN format:
+
+| Node Type | URN Pattern | Example |
+|-----------|-------------|---------|
+| `BOMItem` | `urn:metaforge:bom:<manufacturer>:<mpn>` | `urn:metaforge:bom:STMicroelectronics:STM32F407VG` |
+| `DeviceInstance` | `urn:metaforge:device:<serialNumber>` | `urn:metaforge:device:SN-2026-00042` |
+| `TwinModel` | `urn:metaforge:model:<productId>:<version>` | `urn:metaforge:model:drone-fc:1.0.0` |
+
+### A.2 `BOMItem.specifications` Recommended Keys
+
+| Key | Type | AAS Submodel | Example |
+|-----|------|-------------|---------|
+| `countryOfOrigin` | String (ISO 3166-1) | Digital Nameplate | `"US"` |
+| `rohsCompliance` | Enum | Digital Nameplate | `"compliant"` / `"exempt"` / `"non-compliant"` |
+| `reachCompliance` | Enum | Digital Nameplate | `"compliant"` / `"not-assessed"` |
+| `customsTariffNumber` | String | Digital Nameplate | `"8542.31"` |
+| `weightGrams` | Float | Technical Data | `2.5` |
+
+### A.3 `DesignElement.parameters` Recommended Keys
+
+| Key | Type | AAS Submodel | Example |
+|-----|------|-------------|---------|
+| `hardwareVersion` | String | Digital Nameplate | `"rev-C"` |
+| `softwareVersion` | String | Digital Nameplate | `"1.2.0"` |

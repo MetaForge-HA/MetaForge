@@ -3,8 +3,11 @@
 from twin_core.models.agent import AgentNode
 from twin_core.models.artifact import Artifact
 from twin_core.models.base import EdgeBase, NodeBase
+from twin_core.models.bom_item import BOMItem
 from twin_core.models.component import Component
 from twin_core.models.constraint import Constraint
+from twin_core.models.design_element import DesignElement
+from twin_core.models.device_instance import DeviceInstance
 from twin_core.models.enums import (
     ArtifactType,
     ComponentLifecycle,
@@ -19,6 +22,7 @@ from twin_core.models.relationship import (
     SubGraph,
     UsesComponentEdge,
 )
+from twin_core.models.twin_model import TwinModel
 from twin_core.models.version import ArtifactChange, Version, VersionDiff
 
 __all__ = [
@@ -38,6 +42,10 @@ __all__ = [
     "Version",
     "Component",
     "AgentNode",
+    "BOMItem",
+    "DeviceInstance",
+    "TwinModel",
+    "DesignElement",
     # Typed edges
     "DependsOnEdge",
     "UsesComponentEdge",

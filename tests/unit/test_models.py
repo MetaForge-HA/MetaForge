@@ -10,6 +10,7 @@ from twin_core.models import (
     Artifact,
     ArtifactChange,
     ArtifactType,
+    BOMItem,
     Component,
     ComponentLifecycle,
     ConstrainedByEdge,
@@ -17,10 +18,13 @@ from twin_core.models import (
     ConstraintSeverity,
     ConstraintStatus,
     DependsOnEdge,
+    DesignElement,
+    DeviceInstance,
     EdgeBase,
     EdgeType,
     NodeType,
     SubGraph,
+    TwinModel,
     UsesComponentEdge,
     Version,
     VersionDiff,
@@ -268,3 +272,167 @@ class TestSubGraph:
         sg = SubGraph(root_id=uuid4(), depth=2)
         assert sg.nodes == []
         assert sg.edges == []
+
+
+# --- BOMItem ---
+
+
+class TestBOMItem:
+    def test_create_with_defaults(self):
+        item = BOMItem(
+            part_number="STM32F407VG",
+            manufacturer="STMicroelectronics",
+        )
+        assert isinstance(item.id, UUID)
+        assert item.node_type == NodeType.BOM_ITEM
+        assert item.quantity == 1
+        assert item.specifications == {}
+        assert item.global_asset_id is None
+        assert item.supplier is None
+        assert item.reference_designators == []
+
+    def test_full_bom_item(self):
+        item = BOMItem(
+            part_number="STM32F407VG",
+            manufacturer="STMicroelectronics",
+            description="ARM Cortex-M4 MCU",
+            quantity=2,
+            reference_designators=["U1", "U2"],
+            unit_cost=8.50,
+            specifications={
+                "countryOfOrigin": "CN",
+                "rohsCompliance": "compliant",
+                "reachCompliance": "compliant",
+                "customsTariffNumber": "8542.31",
+                "weightGrams": 2.5,
+            },
+            global_asset_id="urn:metaforge:bom:STMicroelectronics:STM32F407VG",
+            supplier="DigiKey",
+        )
+        assert item.supplier == "DigiKey"
+        assert item.global_asset_id == "urn:metaforge:bom:STMicroelectronics:STM32F407VG"
+        assert item.specifications["rohsCompliance"] == "compliant"
+        assert item.specifications["weightGrams"] == 2.5
+
+    def test_serialization_roundtrip(self):
+        item = BOMItem(
+            part_number="RC0402FR-071KL",
+            manufacturer="Yageo",
+            supplier="Mouser",
+            global_asset_id="urn:metaforge:bom:Yageo:RC0402FR-071KL",
+        )
+        data = item.model_dump()
+        restored = BOMItem.model_validate(data)
+        assert restored.id == item.id
+        assert restored.supplier == "Mouser"
+        assert restored.global_asset_id == item.global_asset_id
+
+
+# --- DeviceInstance ---
+
+
+class TestDeviceInstance:
+    def test_create_with_defaults(self):
+        dev = DeviceInstance(
+            serial_number="SN-2026-00042",
+            product_id="drone-fc",
+        )
+        assert dev.node_type == NodeType.DEVICE_INSTANCE
+        assert dev.firmware_version == ""
+        assert dev.hardware_revision == ""
+        assert dev.global_asset_id is None
+        assert dev.manufactured_at is None
+
+    def test_with_global_asset_id(self):
+        dev = DeviceInstance(
+            serial_number="SN-2026-00042",
+            product_id="drone-fc",
+            firmware_version="1.2.0",
+            hardware_revision="rev-C",
+            global_asset_id="urn:metaforge:device:SN-2026-00042",
+        )
+        assert dev.global_asset_id == "urn:metaforge:device:SN-2026-00042"
+        assert dev.firmware_version == "1.2.0"
+
+    def test_serialization_roundtrip(self):
+        dev = DeviceInstance(
+            serial_number="SN-001",
+            product_id="widget-v2",
+            global_asset_id="urn:metaforge:device:SN-001",
+        )
+        data = dev.model_dump()
+        restored = DeviceInstance.model_validate(data)
+        assert restored.id == dev.id
+        assert restored.global_asset_id == dev.global_asset_id
+
+
+# --- TwinModel ---
+
+
+class TestTwinModel:
+    def test_create_with_defaults(self):
+        tm = TwinModel(
+            product_id="drone-fc",
+            version="1.0.0",
+            name="Drone Flight Controller",
+        )
+        assert tm.node_type == NodeType.TWIN_MODEL
+        assert tm.description == ""
+        assert tm.global_asset_id is None
+        assert tm.created_at is not None
+
+    def test_with_global_asset_id(self):
+        tm = TwinModel(
+            product_id="drone-fc",
+            version="1.0.0",
+            name="Drone Flight Controller",
+            global_asset_id="urn:metaforge:model:drone-fc:1.0.0",
+        )
+        assert tm.global_asset_id == "urn:metaforge:model:drone-fc:1.0.0"
+
+    def test_serialization_roundtrip(self):
+        tm = TwinModel(
+            product_id="widget",
+            version="2.1.0",
+            name="Widget v2.1",
+            global_asset_id="urn:metaforge:model:widget:2.1.0",
+        )
+        data = tm.model_dump()
+        restored = TwinModel.model_validate(data)
+        assert restored.id == tm.id
+        assert restored.global_asset_id == tm.global_asset_id
+
+
+# --- DesignElement ---
+
+
+class TestDesignElement:
+    def test_create_with_defaults(self):
+        de = DesignElement(name="Power Module")
+        assert de.node_type == NodeType.DESIGN_ELEMENT
+        assert de.parameters == {}
+        assert de.element_type == ""
+        assert de.domain == ""
+
+    def test_with_aas_parameters(self):
+        de = DesignElement(
+            name="Main Board",
+            element_type="pcba",
+            domain="electronics",
+            parameters={
+                "hardwareVersion": "rev-C",
+                "softwareVersion": "1.2.0",
+            },
+        )
+        assert de.parameters["hardwareVersion"] == "rev-C"
+        assert de.parameters["softwareVersion"] == "1.2.0"
+
+    def test_serialization_roundtrip(self):
+        de = DesignElement(
+            name="Sensor Array",
+            parameters={"hardwareVersion": "rev-A"},
+        )
+        data = de.model_dump()
+        restored = DesignElement.model_validate(data)
+        assert restored.id == de.id
+        assert restored.parameters == {"hardwareVersion": "rev-A"}

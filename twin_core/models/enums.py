@@ -11,6 +11,10 @@ class NodeType(StrEnum):
     VERSION = "version"
     COMPONENT = "component"
     AGENT = "agent"
+    BOM_ITEM = "bom_item"
+    DEVICE_INSTANCE = "device_instance"
+    TWIN_MODEL = "twin_model"
+    DESIGN_ELEMENT = "design_element"
 
 
 class ArtifactType(StrEnum):
