@@ -34,6 +34,11 @@ class EventType(StrEnum):
     APPROVAL_GRANTED = "approval.granted"
     APPROVAL_REJECTED = "approval.rejected"
 
+    # Gate events (MET-171)
+    GATE_REQUESTED = "gate.transition.requested"
+    GATE_APPROVED = "gate.transition.approved"
+    GATE_REJECTED = "gate.transition.rejected"
+
     # Chat events (MET-79)
     CHAT_MESSAGE_SENT = "chat.message.sent"
     CHAT_MESSAGE_CHUNK = "chat.message.chunk"

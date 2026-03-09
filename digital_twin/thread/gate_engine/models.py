@@ -74,6 +74,7 @@ class GateTransitionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    OVERRIDDEN = "overridden"
 
 
 class GateTransition(BaseModel):
@@ -87,6 +88,33 @@ class GateTransition(BaseModel):
     approved_at: datetime | None = None
     comment: str = ""
     status: GateTransitionStatus = GateTransitionStatus.PENDING
+
+
+class GateTransitionRequest(BaseModel):
+    """Request payload for initiating a gate transition."""
+
+    project_id: str = Field(description="Project identifier")
+    from_gate: GateStage | None = Field(
+        default=None, description="Current gate stage (None if first gate)"
+    )
+    to_gate: GateStage = Field(description="Target gate stage")
+    requestor_id: str = Field(description="ID of the person/agent requesting transition")
+    branch: str = Field(default="main", description="Twin branch to evaluate")
+
+
+class GateApprovalResult(BaseModel):
+    """Result of an approval, rejection, or override action on a gate transition."""
+
+    request_id: UUID = Field(description="ID of the gate transition")
+    status: GateTransitionStatus
+    approver_id: str
+    comment: str = ""
+    readiness_score: ReadinessScore | None = None
+    override_justification: str | None = Field(
+        default=None,
+        description="Justification provided when overriding a blocked transition",
+    )
+    decided_at: datetime
 
 
 class GateDefinition(BaseModel):
