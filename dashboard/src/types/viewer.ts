@@ -19,12 +19,16 @@ export interface ModelManifest {
   stats: { triangleCount: number; fileSize: number };
 }
 
+/** Explode direction modes for the 3D assembly viewer. */
+export type ExplodeDirection = 'radial' | 'axial';
+
 export interface ViewerAdapter {
   loadModel(glbUrl: string, manifest: ModelManifest): Promise<void>;
   selectPart(meshName: string): void;
   highlightParts(meshNames: string[]): void;
   setVisibility(meshName: string, visible: boolean): void;
   setExplodedView(factor: number): void;
+  setExplodeDirection(direction: ExplodeDirection): void;
   getSelectedPart(): PartInfo | null;
   onPartClick(callback: (part: PartInfo) => void): void;
   dispose(): void;
