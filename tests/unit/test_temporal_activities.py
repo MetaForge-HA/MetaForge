@@ -238,17 +238,13 @@ class TestApprovalActivity:
 
     async def test_auto_approves_without_temporal(self) -> None:
         """Without Temporal runtime, the activity auto-approves."""
-        from unittest.mock import patch
-
         req = ApprovalRequest(
             approval_id="test-1",
             description="Test approval",
             run_id=RUN_ID,
             step_id="approval_step",
         )
-        # Force the non-Temporal code path regardless of SDK availability
-        with patch("orchestrator.activities.approval_activity.HAS_TEMPORAL", False):
-            result = await wait_for_approval(req)
+        result = await wait_for_approval(req)
         assert isinstance(result, ApprovalResult)
         assert result.approved is True
         assert result.approver_id == "auto"
@@ -257,6 +253,14 @@ class TestApprovalActivity:
 # ---------------------------------------------------------------------------
 # SingleAgentWorkflow
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _force_no_temporal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force non-Temporal code path for all workflow/activity tests."""
+    monkeypatch.setattr("orchestrator.workflows.single_agent_workflow.HAS_TEMPORAL", False)
+    monkeypatch.setattr("orchestrator.workflows.hardware_design_workflow.HAS_TEMPORAL", False)
+    monkeypatch.setattr("orchestrator.activities.approval_activity.HAS_TEMPORAL", False)
 
 
 class TestSingleAgentWorkflow:
