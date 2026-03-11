@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 
+from orchestrator.activities.approval_activity import wait_for_approval
 from orchestrator.activities.base_activity import (
     AgentActivityInput,
     AgentActivityOutput,
@@ -19,21 +20,19 @@ from orchestrator.activities.base_activity import (
     ApprovalResult,
     get_default_retry_policy,
 )
-from orchestrator.activities.mechanical_activity import run_mechanical_agent
 from orchestrator.activities.electronics_activity import run_electronics_agent
 from orchestrator.activities.firmware_activity import run_firmware_agent
+from orchestrator.activities.mechanical_activity import run_mechanical_agent
 from orchestrator.activities.simulation_activity import run_simulation_agent
-from orchestrator.activities.approval_activity import wait_for_approval
-from orchestrator.workflows.single_agent_workflow import (
-    SingleAgentWorkflow,
-    SingleAgentWorkflowInput,
-    AGENT_ACTIVITIES,
-)
 from orchestrator.workflows.hardware_design_workflow import (
     HardwareDesignWorkflow,
     HardwareDesignWorkflowInput,
 )
-
+from orchestrator.workflows.single_agent_workflow import (
+    AGENT_ACTIVITIES,
+    SingleAgentWorkflow,
+    SingleAgentWorkflowInput,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -254,6 +253,14 @@ class TestApprovalActivity:
 # ---------------------------------------------------------------------------
 # SingleAgentWorkflow
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _force_no_temporal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force non-Temporal code path for all workflow/activity tests."""
+    monkeypatch.setattr("orchestrator.workflows.single_agent_workflow.HAS_TEMPORAL", False)
+    monkeypatch.setattr("orchestrator.workflows.hardware_design_workflow.HAS_TEMPORAL", False)
+    monkeypatch.setattr("orchestrator.activities.approval_activity.HAS_TEMPORAL", False)
 
 
 class TestSingleAgentWorkflow:
@@ -569,7 +576,7 @@ class TestTimeoutBehavior:
     async def test_timeout_error_propagates(self) -> None:
         """When an agent exceeds its timeout, the error propagates for Temporal retry."""
         agent = AsyncMock()
-        agent.run_task.side_effect = asyncio.TimeoutError("activity timed out")
+        agent.run_task.side_effect = TimeoutError("activity timed out")
         p1, p2, p3 = _patch_agent_activity("mechanical", "MechanicalAgent", agent)
         with p1, p2 as mock_twin, p3:
             mock_twin.create.return_value = MagicMock()
