@@ -124,15 +124,28 @@ class ConversionService:
     def _call_occt_service(
         self, file_bytes: bytes, filename: str, quality: str, cache: Path
     ) -> None:
-        """POST the file to the OCCT converter microservice and save results."""
+        """POST the file to the OCCT converter microservice and save results.
+
+        Falls back to a stub metadata + empty GLB when the OCCT container
+        is unreachable so the API stays functional during development.
+        """
         url = f"{self.occt_url}/convert?quality={quality}"
         logger.info("occt_service_call", url=url, filename=filename, size=len(file_bytes))
 
-        resp = httpx.post(
-            url,
-            files={"file": (filename, file_bytes, "application/octet-stream")},
-            timeout=120.0,
-        )
+        try:
+            resp = httpx.post(
+                url,
+                files={"file": (filename, file_bytes, "application/octet-stream")},
+                timeout=120.0,
+            )
+        except httpx.ConnectError:
+            logger.warning(
+                "occt_service_unavailable",
+                url=url,
+                fallback="stub_metadata",
+            )
+            self._write_fallback(cache, filename)
+            return
 
         if resp.status_code != 200:
             body = resp.text
@@ -147,3 +160,26 @@ class ConversionService:
         # Decode and write GLB
         glb_bytes = base64.b64decode(result["glb_base64"])
         (cache / "model.glb").write_bytes(glb_bytes)
+
+    @staticmethod
+    def _write_fallback(cache: Path, filename: str) -> None:
+        """Write stub metadata and an empty GLB when the converter is offline."""
+        fallback_metadata: dict[str, Any] = {
+            "parts": [
+                {
+                    "name": Path(filename).stem,
+                    "mesh_name": "",
+                    "children": [],
+                    "bounding_box": {},
+                }
+            ],
+            "materials": [],
+            "stats": {
+                "triangle_count": 0,
+                "file_size": 0,
+                "vertex_count": 0,
+            },
+            "converter_unavailable": True,
+        }
+        (cache / "metadata.json").write_text(json.dumps(fallback_metadata, indent=2))
+        (cache / "model.glb").write_bytes(b"")
