@@ -186,9 +186,7 @@ def init_observability(config: ObservabilityConfig) -> ObservabilityState:
             timeout=config.otlp.timeout_ms,
         )
         logger_provider = LoggerProvider(resource=resource)
-        logger_provider.add_log_record_processor(
-            BatchLogRecordProcessor(log_exporter)
-        )
+        logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         # Bridge Python stdlib logging → OTel log exporter
         from opentelemetry.sdk._logs import LoggingHandler
 
