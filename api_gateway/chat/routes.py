@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from api_gateway.chat.agent_router import default_router
 from api_gateway.chat.models import (
@@ -35,6 +36,7 @@ from api_gateway.chat.schemas import (
     ThreadResponse,
     ThreadSummaryResponse,
 )
+from api_gateway.chat.streaming import stream_manager, stream_thread
 from domain_agents.base_agent import is_llm_available
 from domain_agents.mechanical.pydantic_ai_agent import (
     MechanicalAgentDeps,
@@ -465,3 +467,39 @@ async def send_message(thread_id: str, body: SendMessageRequest) -> MessageRespo
             thread.last_message_at = agent_msg.created_at
 
     return _make_message_response(msg)
+
+
+# ---------------------------------------------------------------------------
+# SSE streaming endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get("/threads/{thread_id}/stream")
+async def stream_thread_events(thread_id: str) -> StreamingResponse:
+    """Stream real-time events for a chat thread via Server-Sent Events.
+
+    The client receives events as they occur:
+
+    - ``message.created`` -- a new message was added
+    - ``agent.typing``    -- an agent is processing
+    - ``agent.done``      -- an agent finished
+    - ``error``           -- an error occurred
+
+    The connection stays open until the client disconnects or the server
+    closes the stream.
+    """
+    thread = store.threads.get(thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    logger.info("sse_stream_requested", thread_id=thread_id)
+
+    return StreamingResponse(
+        stream_thread(thread_id, manager=stream_manager),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
