@@ -119,14 +119,19 @@ class TestToolRegistry:
         assert adapter_info.adapter_id == "calculix"
         assert adapter_info.version == "0.1.0"
         assert adapter_info.status == AdapterStatus.CONNECTED
-        assert len(adapter_info.tools) == 3
+        assert len(adapter_info.tools) == 4
 
     async def test_register_adapter_populates_tools(self) -> None:
         registry = ToolRegistry()
         server = _create_calculix_server()
         await registry.register_adapter(server)
 
-        expected_ids = {"calculix.run_fea", "calculix.run_thermal", "calculix.validate_mesh"}
+        expected_ids = {
+            "calculix.run_fea",
+            "calculix.run_thermal",
+            "calculix.validate_mesh",
+            "calculix.extract_results",
+        }
         actual_ids = {t.tool_id for t in registry.list_tools()}
         assert actual_ids == expected_ids
 
@@ -180,7 +185,7 @@ class TestToolRegistry:
         await registry.register_adapter(server)
 
         tools = registry.list_tools()
-        assert len(tools) == 3
+        assert len(tools) == 4
 
     async def test_list_tools_by_capability(self) -> None:
         registry = ToolRegistry()
@@ -206,7 +211,7 @@ class TestToolRegistry:
 
         # All CalculiX tools are phase 1
         tools = registry.list_tools(phase=1)
-        assert len(tools) == 3
+        assert len(tools) == 4
 
         tools = registry.list_tools(phase=2)
         assert tools == []
@@ -226,9 +231,14 @@ class TestToolRegistry:
         await registry.register_adapter(server)
 
         capabilities = registry.list_capabilities()
-        assert len(capabilities) == 3
+        assert len(capabilities) == 4
         capability_names = {c.capability for c in capabilities}
-        assert capability_names == {"stress_analysis", "thermal_analysis", "mesh_validation"}
+        assert capability_names == {
+            "stress_analysis",
+            "thermal_analysis",
+            "mesh_validation",
+            "result_extraction",
+        }
 
         # Check that each capability references the correct tool
         for cap in capabilities:
@@ -243,7 +253,7 @@ class TestToolRegistry:
         assert health.status == "healthy"
         assert health.adapter_id == "calculix"
         assert health.version == "0.1.0"
-        assert health.tools_available == 3
+        assert health.tools_available == 4
 
         # Verify adapter status was updated
         adapter = registry.get_adapter("calculix")
@@ -278,7 +288,7 @@ class TestToolRegistry:
         # Should still have exactly one adapter
         assert len(registry.list_adapters()) == 1
         # Tools should not be duplicated
-        assert len(registry.list_tools()) == 3
+        assert len(registry.list_tools()) == 4
         # Both infos should reference same adapter
         assert info1.adapter_id == info2.adapter_id
 
