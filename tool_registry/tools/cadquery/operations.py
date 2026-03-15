@@ -476,9 +476,8 @@ class CadqueryOperations:
             self._ensure_output_dir(output_path)
 
             # Build sandboxed namespace
-            import functools
-
             import builtins as _builtins_module
+            import functools
 
             safe_builtins: dict[str, Any] = {}
             for k in _SAFE_BUILTINS:
