@@ -85,28 +85,34 @@ class TestCreateParametric:
     async def test_unsupported_shape_type(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="Unsupported shape type"):
-            await server.create_parametric({
-                "shape_type": "gearbox",
-                "parameters": {"width": 10},
-                "output_path": "/out.step",
-            })
+            await server.create_parametric(
+                {
+                    "shape_type": "gearbox",
+                    "parameters": {"width": 10},
+                    "output_path": "/out.step",
+                }
+            )
 
     async def test_missing_parameters(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="parameters is required"):
-            await server.create_parametric({
-                "shape_type": "box",
-                "parameters": {},
-                "output_path": "/out.step",
-            })
+            await server.create_parametric(
+                {
+                    "shape_type": "box",
+                    "parameters": {},
+                    "output_path": "/out.step",
+                }
+            )
 
     async def test_missing_output_path(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="output_path is required"):
-            await server.create_parametric({
-                "shape_type": "box",
-                "parameters": {"length": 10},
-            })
+            await server.create_parametric(
+                {
+                    "shape_type": "box",
+                    "parameters": {"length": 10},
+                }
+            )
 
 
 class TestBooleanOperation:
@@ -115,19 +121,23 @@ class TestBooleanOperation:
     async def test_missing_input_a(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="input_file_a is required"):
-            await server.boolean_operation({
-                "input_file_b": "b.step",
-                "operation": "union",
-            })
+            await server.boolean_operation(
+                {
+                    "input_file_b": "b.step",
+                    "operation": "union",
+                }
+            )
 
     async def test_unsupported_operation(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="Unsupported boolean operation"):
-            await server.boolean_operation({
-                "input_file_a": "a.step",
-                "input_file_b": "b.step",
-                "operation": "xor",
-            })
+            await server.boolean_operation(
+                {
+                    "input_file_a": "a.step",
+                    "input_file_b": "b.step",
+                    "operation": "xor",
+                }
+            )
 
 
 class TestGetProperties:
@@ -150,10 +160,12 @@ class TestExportGeometry:
     async def test_unsupported_format(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="Unsupported export format"):
-            await server.export_geometry({
-                "input_file": "model.step",
-                "output_format": "dwg",
-            })
+            await server.export_geometry(
+                {
+                    "input_file": "model.step",
+                    "output_format": "dwg",
+                }
+            )
 
 
 class TestExecuteScript:
@@ -176,16 +188,20 @@ class TestCreateAssembly:
     async def test_part_missing_name(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="missing 'name'"):
-            await server.create_assembly({
-                "parts": [{"file": "a.step"}],
-            })
+            await server.create_assembly(
+                {
+                    "parts": [{"file": "a.step"}],
+                }
+            )
 
     async def test_part_missing_file(self):
         server = CadqueryServer()
         with pytest.raises(ValueError, match="missing 'file'"):
-            await server.create_assembly({
-                "parts": [{"name": "base"}],
-            })
+            await server.create_assembly(
+                {
+                    "parts": [{"name": "base"}],
+                }
+            )
 
 
 class TestGenerateEnclosure:
@@ -210,12 +226,14 @@ class TestJsonRpcIntegration:
 
     async def test_tool_list(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "1",
-            "method": "tool/list",
-            "params": {},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "tool/list",
+                "params": {},
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 
@@ -226,12 +244,14 @@ class TestJsonRpcIntegration:
 
     async def test_tool_list_filter_by_capability(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "2",
-            "method": "tool/list",
-            "params": {"capability": "cad_generation"},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "2",
+                "method": "tool/list",
+                "params": {"capability": "cad_generation"},
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 
@@ -241,12 +261,14 @@ class TestJsonRpcIntegration:
 
     async def test_health_check(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "3",
-            "method": "health/check",
-            "params": {},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "3",
+                "method": "health/check",
+                "params": {},
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 
@@ -257,12 +279,14 @@ class TestJsonRpcIntegration:
 
     async def test_unknown_method(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "4",
-            "method": "unknown/method",
-            "params": {},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "4",
+                "method": "unknown/method",
+                "params": {},
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 
@@ -279,12 +303,14 @@ class TestJsonRpcIntegration:
 
     async def test_tool_call_unknown_tool(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "5",
-            "method": "tool/call",
-            "params": {"tool_id": "cadquery.nonexistent", "arguments": {}},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "5",
+                "method": "tool/call",
+                "params": {"tool_id": "cadquery.nonexistent", "arguments": {}},
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 
@@ -292,15 +318,17 @@ class TestJsonRpcIntegration:
 
     async def test_tool_call_validation_error(self):
         server = CadqueryServer()
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "6",
-            "method": "tool/call",
-            "params": {
-                "tool_id": "cadquery.create_parametric",
-                "arguments": {},  # Missing required args
-            },
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "6",
+                "method": "tool/call",
+                "params": {
+                    "tool_id": "cadquery.create_parametric",
+                    "arguments": {},  # Missing required args
+                },
+            }
+        )
 
         response = json.loads(await server.handle_request(request))
 

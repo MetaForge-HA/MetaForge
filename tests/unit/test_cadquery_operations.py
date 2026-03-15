@@ -185,10 +185,7 @@ class TestCadqueryOperationsWithCadquery:
         ops = CadqueryOperations(work_dir=str(tmp_path), sandbox_enabled=True)
         output_path = str(tmp_path / "script_out.step")
 
-        script = (
-            "import cadquery as cq\n"
-            "result = cq.Workplane('XY').box(10, 10, 10)\n"
-        )
+        script = "import cadquery as cq\nresult = cq.Workplane('XY').box(10, 10, 10)\n"
 
         result = ops.execute_script(script, output_path)
 

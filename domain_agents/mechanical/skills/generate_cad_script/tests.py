@@ -47,9 +47,7 @@ def _make_work_product() -> WorkProduct:
 async def _make_ctx_and_handler() -> tuple[SkillContext, GenerateCadScriptHandler, WorkProduct]:
     twin = InMemoryTwinAPI.create()
     mcp = InMemoryMcpBridge()
-    mcp.register_tool(
-        "cadquery.execute_script", capability="cad_scripting", name="Execute Script"
-    )
+    mcp.register_tool("cadquery.execute_script", capability="cad_scripting", name="Execute Script")
     mcp.register_tool_response("cadquery.execute_script", SCRIPT_RESULT)
 
     work_product = await twin.create_work_product(_make_work_product())

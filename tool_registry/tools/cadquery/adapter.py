@@ -46,8 +46,13 @@ class CadqueryServer(McpToolServer):
                         "shape_type": {
                             "type": "string",
                             "enum": [
-                                "box", "cylinder", "sphere", "cone",
-                                "bracket", "plate", "enclosure",
+                                "box",
+                                "cylinder",
+                                "sphere",
+                                "cone",
+                                "bracket",
+                                "plate",
+                                "enclosure",
                             ],
                             "description": "Type of parametric shape to generate",
                         },
@@ -154,8 +159,11 @@ class CadqueryServer(McpToolServer):
                             "type": "array",
                             "items": {"type": "string"},
                             "default": [
-                                "volume", "area", "center_of_mass",
-                                "bounding_box", "inertia",
+                                "volume",
+                                "area",
+                                "center_of_mass",
+                                "bounding_box",
+                                "inertia",
                             ],
                             "description": "Properties to extract",
                         },
@@ -322,9 +330,7 @@ class CadqueryServer(McpToolServer):
                 tool_id="cadquery.generate_enclosure",
                 adapter_id="cadquery",
                 name="Generate Enclosure",
-                description=(
-                    "Generate PCB enclosure from board dimensions and connector cutouts"
-                ),
+                description=("Generate PCB enclosure from board dimensions and connector cutouts"),
                 capability="cad_enclosure",
                 input_schema={
                     "type": "object",
@@ -450,7 +456,8 @@ class CadqueryServer(McpToolServer):
         from tool_registry.tools.cadquery.operations import CadqueryOperations
 
         ops = CadqueryOperations(
-            work_dir=self.config.work_dir, timeout=self.config.max_operation_time,
+            work_dir=self.config.work_dir,
+            timeout=self.config.max_operation_time,
         )
         return ops.boolean_operation(input_file_a, input_file_b, operation, output_path)
 
@@ -469,7 +476,8 @@ class CadqueryServer(McpToolServer):
         from tool_registry.tools.cadquery.operations import CadqueryOperations
 
         ops = CadqueryOperations(
-            work_dir=self.config.work_dir, timeout=self.config.max_operation_time,
+            work_dir=self.config.work_dir,
+            timeout=self.config.max_operation_time,
         )
         return ops.get_properties(input_file, properties)
 
@@ -495,7 +503,8 @@ class CadqueryServer(McpToolServer):
         from tool_registry.tools.cadquery.operations import CadqueryOperations
 
         ops = CadqueryOperations(
-            work_dir=self.config.work_dir, timeout=self.config.max_operation_time,
+            work_dir=self.config.work_dir,
+            timeout=self.config.max_operation_time,
         )
         return ops.export_geometry(input_file, output_format, output_path)
 
@@ -540,7 +549,8 @@ class CadqueryServer(McpToolServer):
         from tool_registry.tools.cadquery.operations import CadqueryOperations
 
         ops = CadqueryOperations(
-            work_dir=self.config.work_dir, timeout=self.config.max_operation_time,
+            work_dir=self.config.work_dir,
+            timeout=self.config.max_operation_time,
         )
         return ops.create_assembly(parts, constraints, output_path)
 
@@ -563,7 +573,8 @@ class CadqueryServer(McpToolServer):
         from tool_registry.tools.cadquery.operations import CadqueryOperations
 
         ops = CadqueryOperations(
-            work_dir=self.config.work_dir, timeout=self.config.max_operation_time,
+            work_dir=self.config.work_dir,
+            timeout=self.config.max_operation_time,
         )
         return ops.generate_enclosure(
             pcb_length=pcb_length,

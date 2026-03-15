@@ -60,9 +60,7 @@ class GenerateCadHandler(SkillBase[GenerateCadInput, GenerateCadOutput]):
             )
             return fallback, fallback_tool
 
-        raise RuntimeError(
-            f"No CAD backend available. Tried {preferred_tool} and {fallback_tool}."
-        )
+        raise RuntimeError(f"No CAD backend available. Tried {preferred_tool} and {fallback_tool}.")
 
     async def validate_preconditions(self, input_data: GenerateCadInput) -> list[str]:
         """Check that the work_product exists and at least one CAD tool is available."""
