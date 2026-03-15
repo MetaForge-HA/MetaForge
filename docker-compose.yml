@@ -31,6 +31,10 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OCCT_CONVERTER_URL=http://occt-converter:8100
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-metaforge}:${POSTGRES_PASSWORD:-metaforge}@postgres:5432/${POSTGRES_DB:-metaforge}
+      - METAFORGE_LLM_PROVIDER=${METAFORGE_LLM_PROVIDER:-}
+      - METAFORGE_LLM_MODEL=${METAFORGE_LLM_MODEL:-}
+      - METAFORGE_LLM_BASE_URL=${METAFORGE_LLM_BASE_URL:-}
+      - METAFORGE_LLM_API_KEY=${METAFORGE_LLM_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
