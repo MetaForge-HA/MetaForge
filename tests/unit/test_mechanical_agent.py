@@ -71,6 +71,7 @@ class TestMechanicalAgent:
             "check_tolerances",
             "generate_mesh",
             "generate_cad",
+            "generate_cad_script",
             "full_validation",
             "design_workflow",
         }

@@ -43,6 +43,12 @@ from domain_agents.mechanical.skills.generate_cad.handler import (
 from domain_agents.mechanical.skills.generate_cad.schema import (
     GenerateCadInput,
 )
+from domain_agents.mechanical.skills.generate_cad_script.handler import (
+    GenerateCadScriptHandler,
+)
+from domain_agents.mechanical.skills.generate_cad_script.schema import (
+    GenerateCadScriptInput,
+)
 from domain_agents.mechanical.skills.generate_mesh.handler import (
     GenerateMeshHandler,
 )
@@ -136,6 +142,9 @@ CalculiX. Provide mesh_file_path, load_case, and stress constraints.
 FreeCAD/Netgen. Provide cad_file path and meshing parameters.
 - **check_tolerance**: Check dimensional tolerances against manufacturing \
 process capabilities. Provide tolerance specs and manufacturing process details.
+- **generate_cad_script**: Generate a CadQuery Python script from a natural \
+language description, then execute it to produce a 3D CAD model (STEP file). \
+Provide a description of the desired geometry and optional constraints.
 
 Given a user request, determine which tools to call and in what order. \
 Analyze the results and provide a clear engineering assessment with pass/fail \
@@ -320,6 +329,53 @@ def _get_or_create_pydantic_agent() -> Any:
             "summary": output.summary,
         }
 
+    # -- Tool: generate_cad_script --------------------------------------------
+
+    @agent.tool
+    async def generate_cad_script(
+        ctx: RunContext[AgentDependencies],
+        description: str,
+        constraints: dict[str, Any] | None = None,
+        material: str = "aluminum_6061",
+    ) -> dict[str, Any]:
+        """Generate a CadQuery script from a natural language description and execute it.
+
+        Args:
+            description: Natural language description of the desired 3D model.
+            constraints: Optional design constraints (dimensions, wall thickness, etc.).
+            material: Material name for metadata.
+        """
+        skill_ctx = SkillContext(
+            twin=ctx.deps.twin,
+            mcp=ctx.deps.mcp_bridge,
+            logger=logger,
+            session_id=UUID(ctx.deps.session_id),
+            branch=ctx.deps.branch,
+        )
+
+        skill_input = GenerateCadScriptInput(
+            work_product_id=UUID("00000000-0000-0000-0000-000000000000"),
+            description=description,
+            constraints=constraints or {},
+            material=material,
+        )
+
+        handler = GenerateCadScriptHandler(skill_ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return {"skill": "generate_cad_script", "success": False, "errors": result.errors}
+
+        output = result.data
+        return {
+            "skill": "generate_cad_script",
+            "success": True,
+            "cad_file": output.cad_file,
+            "script_text": output.script_text,
+            "volume_mm3": output.volume_mm3,
+            "surface_area_mm2": output.surface_area_mm2,
+        }
+
     _pydantic_agent = agent
     return agent
 
@@ -355,6 +411,7 @@ class MechanicalAgent:
         "check_tolerances",
         "generate_mesh",
         "generate_cad",
+        "generate_cad_script",
         "full_validation",
         "design_workflow",
     }
@@ -509,6 +566,7 @@ class MechanicalAgent:
             "check_tolerances": self._run_check_tolerances,
             "generate_mesh": self._run_generate_mesh,
             "generate_cad": self._run_generate_cad,
+            "generate_cad_script": self._run_generate_cad_script,
             "full_validation": self._run_full_validation,
             "design_workflow": self._run_design_workflow,
         }
@@ -809,6 +867,66 @@ class MechanicalAgent:
             skill_result_dict["work_product_id"] = str(wb.id)
         except Exception as exc:
             self.logger.warning("writeback_cad_failed", error=str(exc))
+
+        return TaskResult(
+            task_type=request.task_type,
+            work_product_id=request.work_product_id,
+            success=True,
+            skill_results=[skill_result_dict],
+        )
+
+    async def _run_generate_cad_script(self, request: TaskRequest) -> TaskResult:
+        """Run CAD script generation using the generate_cad_script skill."""
+        ctx = self._create_skill_context(request.branch)
+
+        description: str = request.parameters.get("description", "")
+        if not description:
+            return TaskResult(
+                task_type=request.task_type,
+                work_product_id=request.work_product_id,
+                success=False,
+                errors=["Missing required parameter: description"],
+            )
+
+        skill_input = GenerateCadScriptInput(
+            work_product_id=request.work_product_id,
+            description=description,
+            constraints=request.parameters.get("constraints", {}),
+            material=request.parameters.get("material", "aluminum_6061"),
+            output_format=request.parameters.get("output_format", "step"),
+        )
+
+        handler = GenerateCadScriptHandler(ctx)
+        result = await handler.run(skill_input)
+
+        if not result.success:
+            return TaskResult(
+                task_type=request.task_type,
+                work_product_id=request.work_product_id,
+                success=False,
+                errors=result.errors,
+            )
+
+        output = result.data
+        skill_result_dict: dict[str, Any] = {
+            "skill": "generate_cad_script",
+            "cad_file": output.cad_file,
+            "script_text": output.script_text,
+            "volume_mm3": output.volume_mm3,
+            "surface_area_mm2": output.surface_area_mm2,
+        }
+
+        # Writeback: create a new CAD_MODEL WorkProduct
+        try:
+            wb = await writeback_cad(
+                self.twin,
+                self.session_id,
+                request.branch,
+                skill_result_dict,
+            )
+            skill_result_dict["work_product_id"] = str(wb.id)
+        except Exception as exc:
+            self.logger.warning("writeback_cad_script_failed", error=str(exc))
 
         return TaskResult(
             task_type=request.task_type,
