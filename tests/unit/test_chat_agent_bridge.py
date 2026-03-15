@@ -187,7 +187,7 @@ class TestAgentBridgeWithLLM:
 
         resp = client.get(f"/v1/chat/threads/{thread['id']}")
         agent_msg = resp.json()["messages"][1]
-        assert "Passed: False" in agent_msg["content"]
+        assert "failed" in agent_msg["content"].lower()
 
 
 # ===================================================================

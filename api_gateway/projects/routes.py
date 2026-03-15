@@ -18,7 +18,6 @@ from api_gateway.projects.schemas import (
     CreateProjectRequest,
     ProjectListResponse,
     ProjectResponse,
-    ProjectWorkProductResponse,
 )
 from observability.tracing import get_tracer
 
