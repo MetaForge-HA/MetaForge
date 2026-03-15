@@ -200,9 +200,9 @@ class TestDockerRuntime:
         """Docker runtime should report unavailable in CI (no Docker daemon)."""
         assert await runtime.is_available() is False
 
-    async def test_run_raises_not_implemented(self, runtime):
+    async def test_run_raises_without_docker_sdk(self, runtime):
         config = ContainerConfig(image="test/image")
-        with pytest.raises(NotImplementedError, match="docker SDK"):
+        with pytest.raises(RuntimeError, match="Docker SDK"):
             await runtime.run(config, ["echo", "hello"])
 
     async def test_cleanup_no_error(self, runtime):

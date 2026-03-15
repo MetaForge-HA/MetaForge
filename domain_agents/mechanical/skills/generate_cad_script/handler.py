@@ -67,9 +67,7 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
             # as a deterministic fallback.
             script = self._build_script(input_data.description, input_data.constraints)
 
-            output_path = (
-                f"output/script_{input_data.work_product_id}.{input_data.output_format}"
-            )
+            output_path = f"output/script_{input_data.work_product_id}.{input_data.output_format}"
 
             try:
                 result = await self.context.mcp.invoke(

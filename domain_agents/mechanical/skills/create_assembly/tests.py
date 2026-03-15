@@ -39,9 +39,7 @@ def _make_work_product() -> WorkProduct:
 async def _make_ctx_and_handler() -> tuple[SkillContext, CreateAssemblyHandler, WorkProduct]:
     twin = InMemoryTwinAPI.create()
     mcp = InMemoryMcpBridge()
-    mcp.register_tool(
-        "cadquery.create_assembly", capability="cad_assembly", name="Create Assembly"
-    )
+    mcp.register_tool("cadquery.create_assembly", capability="cad_assembly", name="Create Assembly")
     mcp.register_tool_response("cadquery.create_assembly", ASSEMBLY_RESULT)
 
     work_product = await twin.create_work_product(_make_work_product())

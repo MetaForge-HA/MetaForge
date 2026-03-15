@@ -96,9 +96,7 @@ class TestInMemoryRuntime:
 
     async def test_registered_result(self):
         runtime = InMemoryRuntime()
-        expected = ExecutionResult(
-            success=False, exit_code=1, stderr="segfault"
-        )
+        expected = ExecutionResult(success=False, exit_code=1, stderr="segfault")
         runtime.register_result("my-image", expected)
 
         config = ContainerConfig(image="my-image")
@@ -230,9 +228,7 @@ class TestDockerRuntime:
             result = await runtime.run(config, ["run"])
 
         assert result.success is True
-        mock_client.images.pull.assert_called_once_with(
-            "metaforge/cadquery", tag="0.1.0"
-        )
+        mock_client.images.pull.assert_called_once_with("metaforge/cadquery", tag="0.1.0")
 
     async def test_build_container_kwargs(self):
         runtime = DockerRuntime()
@@ -323,9 +319,7 @@ class TestContainerExecutionEngine:
         engine = ContainerExecutionEngine(runtime)
         config = ContainerConfig(image="test")
 
-        result = await engine.execute_with_retry(
-            "test-tool", config, ["run"], max_retries=2
-        )
+        result = await engine.execute_with_retry("test-tool", config, ["run"], max_retries=2)
 
         assert result.success is True
         assert len(runtime._run_history) == 1  # Only 1 attempt needed
@@ -345,9 +339,7 @@ class TestContainerExecutionEngine:
         engine = ContainerExecutionEngine(runtime)
         config = ContainerConfig(image="test")
 
-        result = await engine.execute_with_retry(
-            "test-tool", config, ["run"], max_retries=2
-        )
+        result = await engine.execute_with_retry("test-tool", config, ["run"], max_retries=2)
 
         assert result.success is True
         assert call_count == 3
@@ -360,9 +352,7 @@ class TestContainerExecutionEngine:
         engine = ContainerExecutionEngine(runtime)
         config = ContainerConfig(image="failing")
 
-        result = await engine.execute_with_retry(
-            "test-tool", config, ["run"], max_retries=1
-        )
+        result = await engine.execute_with_retry("test-tool", config, ["run"], max_retries=1)
 
         assert result.success is False
         assert len(runtime._run_history) == 2  # 1 + 1 retry

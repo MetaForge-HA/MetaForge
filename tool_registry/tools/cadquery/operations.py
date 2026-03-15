@@ -211,9 +211,7 @@ class CadqueryOperations:
     def _build_shape(self, shape_type: str, params: dict[str, Any]) -> Any:
         """Build a CadQuery Workplane from type and parameters."""
         if shape_type == "box":
-            return cq.Workplane("XY").box(
-                params["length"], params["width"], params["height"]
-            )
+            return cq.Workplane("XY").box(params["length"], params["width"], params["height"])
         elif shape_type == "cylinder":
             return cq.Workplane("XY").cylinder(params["height"], params["radius"])
         elif shape_type == "sphere":
@@ -229,9 +227,7 @@ class CadqueryOperations:
         elif shape_type == "bracket":
             return self._build_bracket(params)
         elif shape_type == "plate":
-            return cq.Workplane("XY").box(
-                params["length"], params["width"], params["thickness"]
-            )
+            return cq.Workplane("XY").box(params["length"], params["width"], params["thickness"])
         elif shape_type == "enclosure":
             return self._build_enclosure(params)
         else:
@@ -254,13 +250,7 @@ class CadqueryOperations:
         )
         bracket = base.union(vert)
         # Mounting hole in the base
-        bracket = (
-            bracket
-            .faces(">Z")
-            .workplane()
-            .center(length * 0.25, 0)
-            .hole(hole_radius * 2)
-        )
+        bracket = bracket.faces(">Z").workplane().center(length * 0.25, 0).hole(hole_radius * 2)
         return bracket
 
     def _build_enclosure(self, params: dict[str, Any]) -> Any:
@@ -467,18 +457,15 @@ class CadqueryOperations:
             if self.sandbox_enabled:
                 for blocked in _BLOCKED_NAMES:
                     if blocked in script:
-                        raise ScriptSandboxError(
-                            f"Script contains blocked name: '{blocked}'"
-                        )
+                        raise ScriptSandboxError(f"Script contains blocked name: '{blocked}'")
 
             if not output_path:
                 output_path = os.path.join(self.work_dir, "script_result.step")
             self._ensure_output_dir(output_path)
 
             # Build sandboxed namespace
-            import functools
-
             import builtins as _builtins_module
+            import functools
 
             safe_builtins: dict[str, Any] = {}
             for k in _SAFE_BUILTINS:
@@ -498,9 +485,7 @@ class CadqueryOperations:
             old_handler = None
 
             def _timeout_handler(signum: int, frame: Any) -> None:
-                raise ScriptTimeoutError(
-                    f"Script execution exceeded {exec_timeout}s timeout"
-                )
+                raise ScriptTimeoutError(f"Script execution exceeded {exec_timeout}s timeout")
 
             try:
                 # Set alarm timeout (Unix only, works inside Docker)
@@ -526,9 +511,7 @@ class CadqueryOperations:
             # Extract result
             result_obj = namespace.get("result")
             if result_obj is None:
-                raise ValueError(
-                    "Script must assign its output to a variable named 'result'"
-                )
+                raise ValueError("Script must assign its output to a variable named 'result'")
 
             # Export and get properties
             cq.exporters.export(result_obj, output_path)
@@ -695,8 +678,7 @@ class CadqueryOperations:
                         continue
 
                     enclosure = (
-                        enclosure
-                        .faces(face_sel)
+                        enclosure.faces(face_sel)
                         .workplane()
                         .center(c_x, c_z)
                         .rect(c_width, c_height)
@@ -724,11 +706,7 @@ class CadqueryOperations:
 
                     # Drill screw hole
                     enclosure = (
-                        enclosure
-                        .faces("<Z")
-                        .workplane()
-                        .center(h_x, h_y)
-                        .hole(h_dia, post_height)
+                        enclosure.faces("<Z").workplane().center(h_x, h_y).hole(h_dia, post_height)
                     )
 
             props = self._get_shape_properties(enclosure)

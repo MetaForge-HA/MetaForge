@@ -71,9 +71,7 @@ class CreateAssemblyHandler(SkillBase[CreateAssemblyInput, CreateAssemblyOutput]
 
             parts_dicts = [p.model_dump() for p in input_data.parts]
             constraints_dicts = (
-                [c.model_dump() for c in input_data.constraints]
-                if input_data.constraints
-                else None
+                [c.model_dump() for c in input_data.constraints] if input_data.constraints else None
             )
 
             output_path = input_data.output_path

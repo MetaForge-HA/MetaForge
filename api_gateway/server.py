@@ -106,7 +106,9 @@ ACTION_WORKFLOWS: dict[str, WorkflowDefinition] = {
         name="generate_cad_script",
         steps=[
             WorkflowStep(
-                step_id="cad_script", agent_code="MECH", task_type="generate_cad_script",
+                step_id="cad_script",
+                agent_code="MECH",
+                task_type="generate_cad_script",
             ),
         ],
     ),

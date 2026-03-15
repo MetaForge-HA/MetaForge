@@ -104,10 +104,7 @@ class DockerRuntime(ContainerRuntime):
     def _get_client(self) -> Any:
         """Get or create the Docker client (lazy initialization)."""
         if not HAS_DOCKER_SDK:
-            raise RuntimeError(
-                "Docker SDK is not installed. "
-                "Install with: pip install docker>=7.0"
-            )
+            raise RuntimeError("Docker SDK is not installed. Install with: pip install docker>=7.0")
         if self._client is None:
             self._client = docker.from_env()
         return self._client
@@ -252,9 +249,7 @@ class DockerRuntime(ContainerRuntime):
                 # 5. Cleanup container
                 if container is not None and hasattr(container, "remove"):
                     try:
-                        await loop.run_in_executor(
-                            None, lambda: container.remove(force=True)
-                        )
+                        await loop.run_in_executor(None, lambda: container.remove(force=True))
                     except Exception:
                         pass  # Best-effort cleanup
 
@@ -263,9 +258,7 @@ class DockerRuntime(ContainerRuntime):
     ) -> None:
         """Pull the Docker image if not available locally."""
         try:
-            await loop.run_in_executor(
-                None, lambda: client.images.get(config.full_image)
-            )
+            await loop.run_in_executor(None, lambda: client.images.get(config.full_image))
             logger.debug("Image available locally", image=config.full_image)
         except Exception:
             logger.info("Pulling image", image=config.full_image)
@@ -317,9 +310,7 @@ class DockerRuntime(ContainerRuntime):
             container = await loop.run_in_executor(
                 None, lambda: client.containers.get(container_id)
             )
-            await loop.run_in_executor(
-                None, lambda: container.remove(force=True)
-            )
+            await loop.run_in_executor(None, lambda: container.remove(force=True))
             logger.info("Container removed", container_id=container_id)
         except Exception as exc:
             logger.warning(
