@@ -8,13 +8,13 @@ import { formatRelativeTime } from '../utils/format-time';
 import type { RunStatusResponse } from '../api/endpoints/assistant';
 
 const ACTIONS = [
-  { value: 'validate_stress', label: 'Validate Stress' },
-  { value: 'generate_mesh', label: 'Generate Mesh' },
-  { value: 'check_tolerances', label: 'Check Tolerances' },
-  { value: 'generate_cad', label: 'Generate CAD' },
-  { value: 'run_erc', label: 'Run ERC' },
-  { value: 'run_drc', label: 'Run DRC' },
-  { value: 'full_validation', label: 'Full Validation' },
+  { value: 'validate_stress', label: 'Validate Stress', needsTarget: true },
+  { value: 'generate_mesh', label: 'Generate Mesh', needsTarget: true },
+  { value: 'check_tolerances', label: 'Check Tolerances', needsTarget: true },
+  { value: 'generate_cad', label: 'Generate CAD', needsTarget: false },
+  { value: 'run_erc', label: 'Run ERC', needsTarget: true },
+  { value: 'run_drc', label: 'Run DRC', needsTarget: true },
+  { value: 'full_validation', label: 'Full Validation', needsTarget: true },
 ] as const;
 
 const EVENT_ICONS: Record<string, string> = {
@@ -161,6 +161,7 @@ export function DesignAssistantPage() {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState<string>(ACTIONS[0].value);
   const [projectId, setProjectId] = useState<string>('');
+  const [targetId, setTargetId] = useState<string>('');
   const [runId, setRunId] = useState<string | undefined>(undefined);
 
   const { data: projects } = useProjects();
@@ -170,16 +171,26 @@ export function DesignAssistantPage() {
   const isRunning =
     runStatus?.status === 'running' || runStatus?.status === 'pending';
 
+  const selectedAction = ACTIONS.find((a) => a.value === action);
+  const needsTarget = selectedAction?.needsTarget ?? true;
+
+  // Get work products for the selected project
+  const selectedProject = projects?.find((p) => p.id === projectId);
+  const workProducts = selectedProject?.work_products ?? [];
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim() || !projectId) return;
+    if (!projectId) return;
+    if (needsTarget && !targetId) return;
+    if (!needsTarget && !prompt.trim()) return;
 
     submitRequest.mutate(
       {
         action,
-        target_id: prompt.trim(),
+        target_id: needsTarget ? targetId : undefined,
         project_id: projectId,
-        parameters: { prompt: prompt.trim() },
+        prompt: prompt.trim() || undefined,
+        parameters: prompt.trim() ? { prompt: prompt.trim() } : {},
       },
       {
         onSuccess: (response) => {
@@ -194,6 +205,7 @@ export function DesignAssistantPage() {
 
   function handleReset() {
     setPrompt('');
+    setTargetId('');
     setRunId(undefined);
     submitRequest.reset();
   }
@@ -258,12 +270,43 @@ export function DesignAssistantPage() {
             </select>
           </div>
 
+          {needsTarget && (
+            <div>
+              <label
+                htmlFor="target-select"
+                className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Target work product
+              </label>
+              <select
+                id="target-select"
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+                disabled={!!runId || !projectId}
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              >
+                <option value="">
+                  {!projectId
+                    ? 'Select a project first...'
+                    : workProducts.length === 0
+                      ? 'No work products in this project'
+                      : 'Select a work product...'}
+                </option>
+                {workProducts.map((wp) => (
+                  <option key={wp.id} value={wp.id}>
+                    {wp.name} ({wp.type.replace(/_/g, ' ')})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label
               htmlFor="prompt-input"
               className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              Target work_product ID or description
+              {needsTarget ? 'Additional instructions (optional)' : 'Description / prompt'}
             </label>
             <input
               id="prompt-input"
@@ -271,7 +314,11 @@ export function DesignAssistantPage() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={!!runId}
-              placeholder="e.g. bracket-assembly-v2 or a UUID"
+              placeholder={
+                needsTarget
+                  ? 'e.g. focus on thermal stress at mounting points'
+                  : 'e.g. simple bracket with two mounting holes'
+              }
               className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             />
           </div>
@@ -281,7 +328,11 @@ export function DesignAssistantPage() {
               type="submit"
               variant="primary"
               disabled={
-                !prompt.trim() || !projectId || submitRequest.isPending || !!runId
+                (!needsTarget && !prompt.trim()) ||
+                (needsTarget && !targetId) ||
+                !projectId ||
+                submitRequest.isPending ||
+                !!runId
               }
             >
               {submitRequest.isPending ? 'Submitting...' : 'Submit request'}

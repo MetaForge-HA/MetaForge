@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '../ui/Button';
 import { StatusBadge } from './StatusBadge';
 import { useSubmitRequest, useRunStatus } from '../../hooks/use-assistant';
+import { useProjects } from '../../hooks/use-projects';
 
 const ACTIONS = [
   { value: 'validate_stress', label: 'Validate Stress' },
@@ -18,17 +19,21 @@ interface RunAgentDialogProps {
 
 export function RunAgentDialog({ onClose }: RunAgentDialogProps) {
   const [action, setAction] = useState(ACTIONS[0]!.value);
+  const [projectId, setProjectId] = useState('');
   const [targetId, setTargetId] = useState('');
   const [runId, setRunId] = useState<string | undefined>();
+  const { data: projects } = useProjects();
+  const selectedProject = projects?.find((p) => p.id === projectId);
+  const workProducts = selectedProject?.work_products ?? [];
   const submit = useSubmitRequest();
   const { data: runStatus } = useRunStatus(runId);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!targetId.trim()) return;
+    if (!targetId.trim() || !projectId) return;
 
     submit.mutate(
-      { action, target_id: targetId.trim() },
+      { action, target_id: targetId.trim(), project_id: projectId },
       {
         onSuccess: (resp) => {
           const id = resp.result['run_id'];
@@ -62,6 +67,26 @@ export function RunAgentDialog({ onClose }: RunAgentDialogProps) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
+                htmlFor="dialog-project"
+                className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Project
+              </label>
+              <select
+                id="dialog-project"
+                value={projectId}
+                onChange={(e) => { setProjectId(e.target.value); setTargetId(''); }}
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+              >
+                <option value="">Select a project...</option>
+                {projects?.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
                 htmlFor="action"
                 className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
               >
@@ -86,16 +111,28 @@ export function RunAgentDialog({ onClose }: RunAgentDialogProps) {
                 htmlFor="target"
                 className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
               >
-                Target WorkProduct ID
+                Target work product
               </label>
-              <input
+              <select
                 id="target"
-                type="text"
                 value={targetId}
                 onChange={(e) => setTargetId(e.target.value)}
-                placeholder="e.g. 00000000-0000-0000-0000-000000000001"
-                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
-              />
+                disabled={!projectId}
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+              >
+                <option value="">
+                  {!projectId
+                    ? 'Select a project first...'
+                    : workProducts.length === 0
+                      ? 'No work products in this project'
+                      : 'Select a work product...'}
+                </option>
+                {workProducts.map((wp) => (
+                  <option key={wp.id} value={wp.id}>
+                    {wp.name} ({wp.type.replace(/_/g, ' ')})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex justify-end gap-2">
@@ -106,7 +143,7 @@ export function RunAgentDialog({ onClose }: RunAgentDialogProps) {
                 variant="primary"
                 size="sm"
                 type="submit"
-                disabled={!targetId.trim() || submit.isPending}
+                disabled={!targetId.trim() || !projectId || submit.isPending}
               >
                 {submit.isPending ? 'Submitting...' : 'Submit'}
               </Button>

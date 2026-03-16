@@ -52,7 +52,8 @@ async def submit_request(body: AssistantRequest, request: Request) -> AssistantR
     logger.info(
         "assistant_request",
         action=body.action,
-        target_id=str(body.target_id),
+        target_id=str(body.target_id) if body.target_id else None,
+        prompt=body.prompt[:100] if body.prompt else None,
         session_id=str(body.session_id),
         project_id=body.project_id,
     )
@@ -69,7 +70,8 @@ async def submit_request(body: AssistantRequest, request: Request) -> AssistantR
             status="accepted",
             result={
                 "action": body.action,
-                "target_id": str(body.target_id),
+                "target_id": str(body.target_id) if body.target_id else None,
+                "prompt": body.prompt,
                 "session_id": str(body.session_id),
                 "project_id": body.project_id,
             },
@@ -84,13 +86,14 @@ async def submit_request(body: AssistantRequest, request: Request) -> AssistantR
             f"Available: {', '.join(sorted(action_workflows.keys()))}",
         )
 
-    # Inject work_product_id and parameters into each step
+    # Inject work_product_id, prompt, and parameters into each step
     for step in defn.steps:
-        step.parameters = {
-            **step.parameters,
-            "work_product_id": str(body.target_id),
-            **body.parameters,
-        }
+        extra = {**body.parameters}
+        if body.target_id:
+            extra["work_product_id"] = str(body.target_id)
+        if body.prompt:
+            extra["prompt"] = body.prompt
+        step.parameters = {**step.parameters, **extra}
 
     # Build dependency graph for this specific workflow
     from orchestrator.dependency_engine import DependencyGraph
@@ -105,7 +108,8 @@ async def submit_request(body: AssistantRequest, request: Request) -> AssistantR
         branch=body.parameters.get("branch", "main"),
         metadata={
             "action": body.action,
-            "target_id": str(body.target_id),
+            "target_id": str(body.target_id) if body.target_id else None,
+            "prompt": body.prompt,
             "session_id": str(body.session_id),
             "project_id": body.project_id,
         },
@@ -120,7 +124,8 @@ async def submit_request(body: AssistantRequest, request: Request) -> AssistantR
         result={
             "run_id": run.id,
             "action": body.action,
-            "target_id": str(body.target_id),
+            "target_id": str(body.target_id) if body.target_id else None,
+            "prompt": body.prompt,
             "session_id": str(body.session_id),
             "project_id": body.project_id,
         },
