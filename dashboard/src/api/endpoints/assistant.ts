@@ -2,8 +2,9 @@ import apiClient from '../client';
 
 export interface SubmitRequestPayload {
   action: string;
-  target_id: string;
+  target_id?: string;
   project_id: string;
+  prompt?: string;
   parameters?: Record<string, unknown>;
   session_id?: string;
 }

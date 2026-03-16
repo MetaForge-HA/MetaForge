@@ -66,7 +66,14 @@ class AssistantRequest(BaseModel):
         min_length=1,
         description="Agent action to perform (e.g. 'validate_stress', 'run_drc')",
     )
-    target_id: UUID = Field(description="UUID of the target work_product in the Digital Twin")
+    target_id: UUID | None = Field(
+        default=None,
+        description="UUID of the target work_product (optional for generative actions)",
+    )
+    prompt: str = Field(
+        default="",
+        description="Free-text prompt or description for generative actions (e.g. generate_cad)",
+    )
     project_id: str = Field(
         min_length=1,
         description="Project this request belongs to",

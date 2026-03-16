@@ -88,6 +88,35 @@ class TestAssistantRequestSchema:
         assert restored.action == req.action
         assert restored.target_id == req.target_id
 
+    def test_optional_target_id(self) -> None:
+        """Generative actions like generate_cad don't need a target."""
+        req = AssistantRequest(
+            action="generate_cad",
+            project_id="proj-001",
+            prompt="simple bracket with two mounting holes",
+        )
+        assert req.target_id is None
+        assert req.prompt == "simple bracket with two mounting holes"
+
+    def test_prompt_defaults_empty(self) -> None:
+        req = AssistantRequest(
+            action="validate_stress",
+            target_id=uuid4(),
+            project_id="proj-001",
+        )
+        assert req.prompt == ""
+
+    def test_both_target_and_prompt(self) -> None:
+        tid = uuid4()
+        req = AssistantRequest(
+            action="validate_stress",
+            target_id=tid,
+            project_id="proj-001",
+            prompt="focus on thermal stress",
+        )
+        assert req.target_id == tid
+        assert req.prompt == "focus on thermal stress"
+
 
 # ===================================================================
 # Schema tests — AssistantResponse
@@ -463,6 +492,22 @@ class TestSubmitRequest:
             },
         )
         assert resp.status_code == 422
+
+    def test_submit_without_target_id(self, client: TestClient) -> None:
+        """Generative actions can omit target_id and use prompt instead."""
+        resp = client.post(
+            "/v1/assistant/request",
+            json={
+                "action": "generate_cad",
+                "project_id": "proj-001",
+                "prompt": "simple bracket with mounting holes",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "accepted"
+        assert data["result"]["target_id"] is None
+        assert data["result"]["prompt"] == "simple bracket with mounting holes"
 
 
 # ===================================================================
