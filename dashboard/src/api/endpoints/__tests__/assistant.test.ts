@@ -16,7 +16,7 @@ const mockPost = vi.mocked(apiClient.post);
 describe('submitRequest', () => {
   it('posts to /assistant/request', async () => {
     mockPost.mockResolvedValueOnce({ data: { request_id: 'r1', status: 'accepted', result: {}, errors: [] } });
-    const result = await submitRequest({ action: 'validate_stress', target_id: 'art-001' });
+    const result = await submitRequest({ action: 'validate_stress', target_id: 'art-001', project_id: 'proj-001' });
     expect(mockPost).toHaveBeenCalledWith('/assistant/request', expect.objectContaining({ action: 'validate_stress' }));
     expect(result.status).toBe('accepted');
   });
