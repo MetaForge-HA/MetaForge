@@ -104,8 +104,8 @@ class MechanicalResult(AgentResult):
 class TaskRequest(BaseModel):
     """A request for the mechanical agent to perform a task."""
 
-    task_type: str  # "validate_stress", "check_tolerances", "generate_mesh", "full_validation"
-    work_product_id: UUID
+    task_type: str
+    work_product_id: UUID | None = None
     parameters: dict[str, Any] = {}
     branch: str = "main"
 
@@ -114,7 +114,7 @@ class TaskResult(BaseModel):
     """Result of a mechanical agent task."""
 
     task_type: str
-    work_product_id: UUID
+    work_product_id: UUID | None = None
     success: bool
     skill_results: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -354,7 +354,6 @@ def _get_or_create_pydantic_agent() -> Any:
         )
 
         skill_input = GenerateCadScriptInput(
-            work_product_id=UUID("00000000-0000-0000-0000-000000000000"),
             description=description,
             constraints=constraints or {},
             material=material,
@@ -469,19 +468,22 @@ class MechanicalAgent:
         if agent is None:
             raise RuntimeError("PydanticAI agent could not be created")
 
-        # Verify work_product exists first
-        work_product = await self.twin.get_work_product(
-            request.work_product_id, branch=request.branch
-        )
-        if work_product is None:
-            return TaskResult(
-                task_type=request.task_type,
-                work_product_id=request.work_product_id,
-                success=False,
-                errors=[
-                    f"WorkProduct {request.work_product_id} not found on branch '{request.branch}'"
-                ],
+        # Verify work_product exists (skip for generative actions without a target)
+        work_product = None
+        if request.work_product_id is not None:
+            work_product = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
             )
+            if work_product is None:
+                return TaskResult(
+                    task_type=request.task_type,
+                    work_product_id=request.work_product_id,
+                    success=False,
+                    errors=[
+                        f"WorkProduct {request.work_product_id} not found "
+                        f"on branch '{request.branch}'"
+                    ],
+                )
 
         deps = AgentDependencies(
             twin=self.twin,
@@ -539,19 +541,21 @@ class MechanicalAgent:
                 ],
             )
 
-        # Verify work_product exists
-        work_product = await self.twin.get_work_product(
-            request.work_product_id, branch=request.branch
-        )
-        if work_product is None:
-            return TaskResult(
-                task_type=request.task_type,
-                work_product_id=request.work_product_id,
-                success=False,
-                errors=[
-                    f"WorkProduct {request.work_product_id} not found on branch '{request.branch}'"
-                ],
+        # Verify work_product exists (skip for generative actions without a target)
+        if request.work_product_id is not None:
+            work_product = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
             )
+            if work_product is None:
+                return TaskResult(
+                    task_type=request.task_type,
+                    work_product_id=request.work_product_id,
+                    success=False,
+                    errors=[
+                        f"WorkProduct {request.work_product_id} not found "
+                        f"on branch '{request.branch}'"
+                    ],
+                )
 
         # Route to handler
         handler = self._get_handler(request.task_type)
@@ -803,16 +807,30 @@ class MechanicalAgent:
         )
 
     async def _run_generate_cad(self, request: TaskRequest) -> TaskResult:
-        """Run CAD generation using the generate_cad skill."""
+        """Run CAD generation using the generate_cad skill.
+
+        When called with a ``prompt`` parameter instead of structured
+        ``shape_type`` + ``dimensions``, delegates to ``generate_cad_script``
+        which handles natural-language descriptions.
+        """
+        # If user provided a prompt but no shape_type, use the script path
+        prompt = request.parameters.get("prompt", "")
+        shape_type: str = request.parameters.get("shape_type", "")
+        if not shape_type and prompt:
+            request_copy = request.model_copy(
+                update={"task_type": "generate_cad_script",
+                        "parameters": {**request.parameters, "description": prompt}},
+            )
+            return await self._run_generate_cad_script(request_copy)
+
         ctx = self._create_skill_context(request.branch)
 
-        shape_type: str = request.parameters.get("shape_type", "")
         if not shape_type:
             return TaskResult(
                 task_type=request.task_type,
                 work_product_id=request.work_product_id,
                 success=False,
-                errors=["Missing required parameter: shape_type"],
+                errors=["Missing required parameter: shape_type (or provide a prompt)"],
             )
 
         dimensions: dict = request.parameters.get("dimensions", {})
@@ -859,8 +877,14 @@ class MechanicalAgent:
 
         # Writeback: create a new CAD_MODEL WorkProduct
         # Extract project_id from the source WorkProduct metadata (if present)
-        src_wp = await self.twin.get_work_product(request.work_product_id, branch=request.branch)
+        src_wp = None
+        if request.work_product_id is not None:
+            src_wp = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
+            )
         pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "") if src_wp else ""
+        # Also check request parameters for project_id (from assistant form)
+        pid = pid or request.parameters.get("project_id", "")
         try:
             wb = await writeback_cad(
                 self.twin,
@@ -926,8 +950,13 @@ class MechanicalAgent:
         }
 
         # Writeback: create a new CAD_MODEL WorkProduct
-        src_wp = await self.twin.get_work_product(request.work_product_id, branch=request.branch)
+        src_wp = None
+        if request.work_product_id is not None:
+            src_wp = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
+            )
         pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "") if src_wp else ""
+        pid = pid or request.parameters.get("project_id", "")
         try:
             wb = await writeback_cad(
                 self.twin,

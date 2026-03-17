@@ -35,11 +35,13 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
         """Check that the work_product exists and CadQuery scripting tool is available."""
         errors: list[str] = []
 
-        work_product = await self.context.twin.get_work_product(
-            input_data.work_product_id, branch=self.context.branch
-        )
-        if work_product is None:
-            errors.append(f"WorkProduct {input_data.work_product_id} not found in Twin")
+        # Work product lookup is optional for generative actions
+        if input_data.work_product_id is not None:
+            work_product = await self.context.twin.get_work_product(
+                input_data.work_product_id, branch=self.context.branch
+            )
+            if work_product is None:
+                errors.append(f"WorkProduct {input_data.work_product_id} not found in Twin")
 
         if not await self.context.mcp.is_available("cadquery.execute_script"):
             errors.append("CadQuery execute_script tool is not available")
@@ -67,7 +69,8 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
             # as a deterministic fallback.
             script = self._build_script(input_data.description, input_data.constraints)
 
-            output_path = f"output/script_{input_data.work_product_id}.{input_data.output_format}"
+            wp_tag = input_data.work_product_id or "new"
+            output_path = f"output/script_{wp_tag}.{input_data.output_format}"
 
             try:
                 result = await self.context.mcp.invoke(
