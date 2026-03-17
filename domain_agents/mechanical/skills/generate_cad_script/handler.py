@@ -130,8 +130,6 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
         height = constraints.get("height", 20.0)
 
         return (
-            "import cadquery as cq\n"
-            "\n"
             f"# Generated from: {description[:80]}\n"
             f"length = {length}\n"
             f"width = {width}\n"

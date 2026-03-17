@@ -45,7 +45,9 @@ class GenerateCadScriptInput(BaseModel):
 class GenerateCadScriptOutput(BaseModel):
     """Output from the generate_cad_script skill."""
 
-    work_product_id: UUID = Field(..., description="Twin work_product ID")
+    work_product_id: UUID | None = Field(
+        default=None, description="Twin work_product ID (None for new generation)"
+    )
     cad_file: str = Field(..., description="Path to generated CAD file")
     script_text: str = Field(..., description="The CadQuery Python script that was executed")
     volume_mm3: float = Field(..., ge=0, description="Volume in cubic millimeters")

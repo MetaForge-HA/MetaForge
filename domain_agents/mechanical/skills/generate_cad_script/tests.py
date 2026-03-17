@@ -81,7 +81,7 @@ class TestGenerateCadScriptHandler:
         assert output.cad_file == "output/script_result.step"
         assert output.volume_mm3 == 30000.0
         assert output.surface_area_mm2 == 6200.0
-        assert "cadquery" in output.script_text.lower()
+        assert "cq.Workplane" in output.script_text or "cadquery" in output.script_text.lower()
 
     async def test_execute_with_material(self):
         """Script generation includes material metadata."""
