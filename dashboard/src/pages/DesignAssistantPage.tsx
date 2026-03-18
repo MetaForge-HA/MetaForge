@@ -104,21 +104,33 @@ function StepTimeline({ steps }: { steps: Record<string, StepInfo> }) {
 function ResultSection({ data }: { data: RunStatusResponse }) {
   if (data.status !== 'completed') return null;
 
-  // Collect work_product URLs from step results
+  // Collect work_product URLs from step results (check both top-level and skill_results)
   const work_products: { name: string; url: string }[] = [];
   for (const [, step] of Object.entries(data.steps as Record<string, StepInfo>)) {
     const result = step.result ?? {};
-    if (typeof result.deliverable_url === 'string') {
-      work_products.push({
-        name: (result.deliverable_name as string) ?? 'Download deliverable',
-        url: result.deliverable_url,
-      });
+    // Check top-level result keys
+    const sources: Record<string, unknown>[] = [result];
+    // Also check nested skill_results array (TaskResult.skill_results)
+    if (Array.isArray(result.skill_results)) {
+      for (const sr of result.skill_results) {
+        if (sr && typeof sr === 'object') {
+          sources.push(sr as Record<string, unknown>);
+        }
+      }
     }
-    if (typeof result.download_url === 'string') {
-      work_products.push({
-        name: (result.file_name as string) ?? 'Download file',
-        url: result.download_url,
-      });
+    for (const src of sources) {
+      if (typeof src.deliverable_url === 'string') {
+        work_products.push({
+          name: (src.deliverable_name as string) ?? 'Download deliverable',
+          url: src.deliverable_url,
+        });
+      }
+      if (typeof src.download_url === 'string') {
+        work_products.push({
+          name: (src.file_name as string) ?? 'Download file',
+          url: src.download_url,
+        });
+      }
     }
   }
 

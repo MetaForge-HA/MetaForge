@@ -859,6 +859,8 @@ class MechanicalAgent:
                 skill_result_dict,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.inp"
         except Exception as exc:
             self.logger.warning("writeback_mesh_failed", error=str(exc))
 
@@ -943,6 +945,8 @@ class MechanicalAgent:
                 project_id=pid,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.step"
             if pid:
                 from api_gateway.projects.routes import link_work_product_to_project
 
@@ -1016,6 +1020,8 @@ class MechanicalAgent:
                 project_id=pid,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.step"
             if pid:
                 from api_gateway.projects.routes import link_work_product_to_project
 
