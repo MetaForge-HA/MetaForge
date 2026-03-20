@@ -72,9 +72,7 @@ class GenerateCadHandler(SkillBase[GenerateCadInput, GenerateCadOutput]):
                 input_data.work_product_id, branch=self.context.branch
             )
             if work_product is None:
-                errors.append(
-                    f"WorkProduct {input_data.work_product_id} not found in Twin"
-                )
+                errors.append(f"WorkProduct {input_data.work_product_id} not found in Twin")
 
         # Check that at least one backend is available
         cadquery_ok = await self.context.mcp.is_available("cadquery.create_parametric")
