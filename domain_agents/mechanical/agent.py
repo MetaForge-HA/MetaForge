@@ -550,10 +550,7 @@ class MechanicalAgent:
                     task_type=request.task_type,
                     work_product_id=wp,
                     success=False,
-                    errors=[
-                        f"WorkProduct {wp} not found "
-                        f"on branch '{request.branch}'"
-                    ],
+                    errors=[f"WorkProduct {wp} not found on branch '{request.branch}'"],
                 )
 
         deps = AgentDependencies(
@@ -589,9 +586,9 @@ class MechanicalAgent:
         # rename keys when summarizing into mechanical_result.tool_calls.
         writeback_sources = deps.tool_results or skill_results
         wp_id = request.work_product_id
-        if (
-            mechanical_result.overall_passed
-            and request.task_type in ("generate_cad", "generate_cad_script")
+        if mechanical_result.overall_passed and request.task_type in (
+            "generate_cad",
+            "generate_cad_script",
         ):
             # Find a skill result with cad_file to write back
             for sr in writeback_sources:
@@ -618,16 +615,12 @@ class MechanicalAgent:
                                 pid, str(wb.id), wb.name, wb.type.value
                             )
                     except Exception as exc:
-                        self.logger.warning(
-                            "writeback_cad_llm_failed", error=str(exc)
-                        )
+                        self.logger.warning("writeback_cad_llm_failed", error=str(exc))
                     break
 
         # For CAD generation, prefer raw tool results (include script_text,
         # bounding_box, etc.) over the LLM's summary which drops fields.
-        final_results = (
-            deps.tool_results if deps.tool_results else skill_results
-        )
+        final_results = deps.tool_results if deps.tool_results else skill_results
 
         return TaskResult(
             task_type=request.task_type,
@@ -642,9 +635,7 @@ class MechanicalAgent:
     def _build_prompt(self, request: TaskRequest) -> str:
         """Build a natural language prompt from a structured TaskRequest."""
         if request.task_type == "generate_cad_script":
-            desc = request.parameters.get("prompt") or request.parameters.get(
-                "description", ""
-            )
+            desc = request.parameters.get("prompt") or request.parameters.get("description", "")
             material = request.parameters.get("material", "aluminum_6061")
             constraints = request.parameters.get("constraints", {})
             parts = [
@@ -696,10 +687,7 @@ class MechanicalAgent:
                     task_type=request.task_type,
                     work_product_id=wp,
                     success=False,
-                    errors=[
-                        f"WorkProduct {wp} not found "
-                        f"on branch '{request.branch}'"
-                    ],
+                    errors=[f"WorkProduct {wp} not found on branch '{request.branch}'"],
                 )
 
         # Route to handler. For generate_cad with a prompt/description

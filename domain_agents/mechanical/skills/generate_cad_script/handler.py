@@ -41,9 +41,7 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
                 input_data.work_product_id, branch=self.context.branch
             )
             if wp is None:
-                errors.append(
-                    f"WorkProduct {input_data.work_product_id} not found"
-                )
+                errors.append(f"WorkProduct {input_data.work_product_id} not found")
 
         if not await self.context.mcp.is_available("cadquery.execute_script"):
             errors.append("CadQuery execute_script tool is not available")
