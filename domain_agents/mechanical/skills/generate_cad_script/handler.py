@@ -69,9 +69,13 @@ class GenerateCadScriptHandler(SkillBase[GenerateCadScriptInput, GenerateCadScri
             # In the full agent loop, the LLM generates this script. Here we
             # construct a minimal parametric script from structured constraints
             # as a deterministic fallback.
-            script = self._build_script(input_data.description, input_data.constraints)
+            script = (
+                input_data.script.strip()
+                if input_data.script.strip()
+                else self._build_script(input_data.description, input_data.constraints)
+            )
 
-            wp_tag = input_data.work_product_id or "new"
+            wp_tag = input_data.work_product_id or self.context.session_id
             output_path = f"output/script_{wp_tag}.{input_data.output_format}"
 
             try:

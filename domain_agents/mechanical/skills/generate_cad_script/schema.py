@@ -30,6 +30,13 @@ class GenerateCadScriptInput(BaseModel):
         min_length=1,
         description="Natural language description of the desired 3D model",
     )
+    script: str = Field(
+        default="",
+        description=(
+            "CadQuery Python script to execute. "
+            "If empty, a fallback script is generated from description/constraints."
+        ),
+    )
     constraints: dict[str, Any] = Field(
         default_factory=dict,
         description="Design constraints (max dimensions, wall thickness, hole sizes, etc.)",

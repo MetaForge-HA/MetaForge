@@ -12,6 +12,7 @@ const ACTIONS = [
   { value: 'generate_mesh', label: 'Generate Mesh', needsTarget: true },
   { value: 'check_tolerances', label: 'Check Tolerances', needsTarget: true },
   { value: 'generate_cad', label: 'Generate CAD', needsTarget: false },
+  { value: 'generate_cad_script', label: 'Generate CAD Script (LLM)', needsTarget: false },
   { value: 'run_erc', label: 'Run ERC', needsTarget: true },
   { value: 'run_drc', label: 'Run DRC', needsTarget: true },
   { value: 'full_validation', label: 'Full Validation', needsTarget: true },
@@ -165,6 +166,57 @@ function ResultSection({ data }: { data: RunStatusResponse }) {
           No downloadable work_products were produced by this run.
         </p>
       )}
+
+      {/* CAD generation details */}
+      {(() => {
+        const cadResults: Record<string, unknown>[] = [];
+        for (const [, step] of Object.entries(data.steps as Record<string, StepInfo>)) {
+          const r = step.result ?? {};
+          if (Array.isArray(r.skill_results)) {
+            for (const sr of r.skill_results) {
+              if (sr && typeof sr === 'object' && (sr as Record<string, unknown>).script_text) {
+                cadResults.push(sr as Record<string, unknown>);
+              }
+            }
+          }
+        }
+        if (cadResults.length === 0) return null;
+        return cadResults.map((sr, idx) => (
+          <div key={idx} className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+            <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              CAD Generation Details
+            </h4>
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-800">
+                <span className="text-zinc-500 dark:text-zinc-400">Volume</span>
+                <p className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                  {typeof sr.volume_mm3 === 'number' ? `${sr.volume_mm3.toLocaleString()} mm\u00B3` : 'N/A'}
+                </p>
+              </div>
+              <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-800">
+                <span className="text-zinc-500 dark:text-zinc-400">Surface Area</span>
+                <p className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                  {typeof sr.surface_area_mm2 === 'number' ? `${sr.surface_area_mm2.toLocaleString()} mm\u00B2` : 'N/A'}
+                </p>
+              </div>
+              <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-800">
+                <span className="text-zinc-500 dark:text-zinc-400">Output</span>
+                <p className="truncate font-mono font-medium text-zinc-900 dark:text-zinc-100">
+                  {(sr.cad_file as string) ?? 'N/A'}
+                </p>
+              </div>
+            </div>
+            <details className="group">
+              <summary className="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                View CadQuery Script
+              </summary>
+              <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-zinc-900 p-3 text-xs text-green-400">
+                <code>{sr.script_text as string}</code>
+              </pre>
+            </details>
+          </div>
+        ));
+      })()}
     </Card>
   );
 }
