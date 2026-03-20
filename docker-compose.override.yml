@@ -18,6 +18,7 @@ services:
       --reload-dir /app/api_gateway
       --reload-dir /app/orchestrator
       --reload-dir /app/twin_core
+      --reload-dir /app/domain_agents
       --reload-dir /app/shared
     environment:
       - WATCHFILES_FORCE_POLLING=true

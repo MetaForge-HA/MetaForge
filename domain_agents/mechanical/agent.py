@@ -105,7 +105,7 @@ class TaskRequest(BaseModel):
     """A request for the mechanical agent to perform a task."""
 
     task_type: str  # "validate_stress", "check_tolerances", "generate_mesh", "full_validation"
-    work_product_id: UUID
+    work_product_id: UUID | None = None
     parameters: dict[str, Any] = {}
     branch: str = "main"
 
@@ -114,7 +114,7 @@ class TaskResult(BaseModel):
     """Result of a mechanical agent task."""
 
     task_type: str
-    work_product_id: UUID
+    work_product_id: UUID | None = None
     success: bool
     skill_results: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -152,6 +152,50 @@ status, safety factors, and recommendations.
 
 Always validate that required parameters are available before calling a tool. \
 If parameters are missing, note what is needed in your recommendations.
+
+## CadQuery Scripting Guidelines
+
+When writing CadQuery scripts for generate_cad_script:
+
+### Sandbox Rules
+- Assign the final shape to a variable named `result`.
+- Do NOT use `import` statements — `cq`, `cadquery`, `math`, and `reduce` are pre-loaded.
+- Maximum script length: 200 lines.
+
+### Available Builtins
+`abs`, `all`, `any`, `bool`, `dict`, `enumerate`, `filter`, `float`, `int`, \
+`len`, `list`, `map`, `max`, `min`, `range`, `round`, `set`, `sorted`, `str`, \
+`sum`, `tuple`, `zip`, `print`.
+
+### Available Namespace
+- `cq` — cadquery module
+- `cadquery` — cadquery module (alias)
+- `math` — standard math module
+- `reduce` — functools.reduce
+
+### CadQuery API Quick Reference
+- `cq.Workplane("XY")` — start a workplane
+- `.box(L, W, H)` — centered box
+- `.cylinder(height, radius)` — centered cylinder
+- `.sphere(radius)` — sphere
+- `.hole(diameter)` — through-hole
+- `.cboreHole(diameter, cboreDiameter, cboreDepth)` — counterbore hole
+- `.cskHole(diameter, cskDiameter, cskAngle)` — countersink hole
+- `.fillet(radius)` / `.chamfer(distance)` — edge treatment
+- `.shell(thickness)` — hollow shell
+- `.cut(shape)` / `.union(shape)` / `.intersect(shape)` — boolean ops
+- `.extrude(distance)` — extrude a 2D profile
+- `.revolve(angleDegrees)` — revolve a 2D profile
+- Selectors: `">Z"`, `"<Z"`, `">Y"`, `"<Y"`, `">X"`, `"<X"` for face/edge selection
+
+### Common Pitfalls
+- Do NOT use `import` — the sandbox strips known imports but blocks unknown ones.
+- Always assign the final shape to `result`.
+- Use `cq.Workplane("XY")` not `cadquery.Workplane`.
+
+### Retry Behavior
+If `generate_cad_script` returns errors, analyze the error message, fix the \
+script, and call the tool again with the corrected script.
 """
 
 
@@ -335,6 +379,7 @@ def _get_or_create_pydantic_agent() -> Any:
     async def generate_cad_script(
         ctx: RunContext[AgentDependencies],
         description: str,
+        script: str = "",
         constraints: dict[str, Any] | None = None,
         material: str = "aluminum_6061",
     ) -> dict[str, Any]:
@@ -342,6 +387,9 @@ def _get_or_create_pydantic_agent() -> Any:
 
         Args:
             description: Natural language description of the desired 3D model.
+            script: CadQuery Python script to execute. Write the script yourself
+                following the CadQuery guidelines. If empty, a basic fallback
+                script is generated from the description.
             constraints: Optional design constraints (dimensions, wall thickness, etc.).
             material: Material name for metadata.
         """
@@ -354,8 +402,9 @@ def _get_or_create_pydantic_agent() -> Any:
         )
 
         skill_input = GenerateCadScriptInput(
-            work_product_id=UUID("00000000-0000-0000-0000-000000000000"),
+            work_product_id=None,
             description=description,
+            script=script,
             constraints=constraints or {},
             material=material,
         )
@@ -367,14 +416,26 @@ def _get_or_create_pydantic_agent() -> Any:
             return {"skill": "generate_cad_script", "success": False, "errors": result.errors}
 
         output = result.data
-        return {
+        tool_result = {
             "skill": "generate_cad_script",
             "success": True,
+            "description": description,
             "cad_file": output.cad_file,
             "script_text": output.script_text,
             "volume_mm3": output.volume_mm3,
             "surface_area_mm2": output.surface_area_mm2,
+            "bounding_box": {
+                "min_x": output.bounding_box.min_x,
+                "min_y": output.bounding_box.min_y,
+                "min_z": output.bounding_box.min_z,
+                "max_x": output.bounding_box.max_x,
+                "max_y": output.bounding_box.max_y,
+                "max_z": output.bounding_box.max_z,
+            },
         }
+        # Capture raw tool result for writeback (LLM may summarize keys)
+        ctx.deps.tool_results.append(tool_result)
+        return tool_result
 
     _pydantic_agent = agent
     return agent
@@ -446,8 +507,17 @@ class MechanicalAgent:
                 work_product_id=str(request.work_product_id),
             )
 
-            # Try PydanticAI path if LLM is available
-            if is_llm_available() and request.task_type in self.SUPPORTED_TASKS:
+            # Generative tasks use the hardcoded dispatch path directly
+            # because the LLM path doesn't reliably call tools for
+            # generation actions and doesn't perform Twin writeback.
+            _GENERATIVE_TASKS = {"generate_cad"}
+
+            # Try PydanticAI path if LLM is available (non-generative only)
+            if (
+                is_llm_available()
+                and request.task_type in self.SUPPORTED_TASKS
+                and request.task_type not in _GENERATIVE_TASKS
+            ):
                 try:
                     result = await self._run_with_llm(request)
                     span.set_attribute("agent.mode", "llm")
@@ -469,19 +539,19 @@ class MechanicalAgent:
         if agent is None:
             raise RuntimeError("PydanticAI agent could not be created")
 
-        # Verify work_product exists first
-        work_product = await self.twin.get_work_product(
-            request.work_product_id, branch=request.branch
-        )
-        if work_product is None:
-            return TaskResult(
-                task_type=request.task_type,
-                work_product_id=request.work_product_id,
-                success=False,
-                errors=[
-                    f"WorkProduct {request.work_product_id} not found on branch '{request.branch}'"
-                ],
+        # Verify work_product exists (skip for generative actions without one)
+        if request.work_product_id is not None:
+            work_product = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
             )
+            if work_product is None:
+                wp = request.work_product_id
+                return TaskResult(
+                    task_type=request.task_type,
+                    work_product_id=wp,
+                    success=False,
+                    errors=[f"WorkProduct {wp} not found on branch '{request.branch}'"],
+                )
 
         deps = AgentDependencies(
             twin=self.twin,
@@ -505,13 +575,58 @@ class MechanicalAgent:
 
         mechanical_result: MechanicalResult = result.output
 
+        skill_results = (
+            mechanical_result.tool_calls
+            if mechanical_result.tool_calls
+            else [mechanical_result.analysis]
+        )
+
+        # Writeback for CAD generation tasks from the LLM path
+        # Use deps.tool_results (raw tool returns) because the LLM may
+        # rename keys when summarizing into mechanical_result.tool_calls.
+        writeback_sources = deps.tool_results or skill_results
+        wp_id = request.work_product_id
+        if mechanical_result.overall_passed and request.task_type in (
+            "generate_cad",
+            "generate_cad_script",
+        ):
+            # Find a skill result with cad_file to write back
+            for sr in writeback_sources:
+                if isinstance(sr, dict) and sr.get("cad_file"):
+                    pid = request.parameters.get("project_id", "")
+                    try:
+                        wb = await writeback_cad(
+                            self.twin,
+                            self.session_id,
+                            request.branch,
+                            sr,
+                            project_id=pid,
+                        )
+                        sr["work_product_id"] = str(wb.id)
+                        sr["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+                        sr["deliverable_name"] = f"{wb.name}.step"
+                        wp_id = wb.id
+                        if pid:
+                            from api_gateway.projects.routes import (
+                                link_work_product_to_project,
+                            )
+
+                            await link_work_product_to_project(
+                                pid, str(wb.id), wb.name, wb.type.value
+                            )
+                    except Exception as exc:
+                        self.logger.warning("writeback_cad_llm_failed", error=str(exc))
+                    break
+
+        # For CAD generation, prefer raw tool results (include script_text,
+        # bounding_box, etc.) over the LLM's summary which drops fields.
+        final_results = deps.tool_results if deps.tool_results else skill_results
+
         return TaskResult(
             task_type=request.task_type,
-            work_product_id=request.work_product_id,
+            work_product_id=wp_id,
             success=mechanical_result.overall_passed,
-            skill_results=mechanical_result.tool_calls
-            if mechanical_result.tool_calls
-            else [mechanical_result.analysis],
+            skill_results=final_results,
             warnings=(
                 mechanical_result.recommendations if not mechanical_result.overall_passed else []
             ),
@@ -519,7 +634,29 @@ class MechanicalAgent:
 
     def _build_prompt(self, request: TaskRequest) -> str:
         """Build a natural language prompt from a structured TaskRequest."""
-        parts = [f"Perform a '{request.task_type}' task on work_product {request.work_product_id}."]
+        if request.task_type == "generate_cad_script":
+            desc = request.parameters.get("prompt") or request.parameters.get("description", "")
+            material = request.parameters.get("material", "aluminum_6061")
+            constraints = request.parameters.get("constraints", {})
+            parts = [
+                f"Generate a 3D CAD model: {desc}.",
+                f"Material: {material}.",
+            ]
+            if constraints:
+                parts.append(f"Constraints: {constraints}.")
+            parts.append(
+                "Write a CadQuery script and call the generate_cad_script tool with your script. "
+                "If execution fails, analyze the error and retry with a corrected script."
+            )
+            return " ".join(parts)
+
+        if request.work_product_id is not None:
+            wp = request.work_product_id
+            parts = [f"Perform a '{request.task_type}' task on work_product {wp}."]
+        else:
+            # Generative action — use the prompt/description from parameters
+            desc = request.parameters.get("prompt") or request.parameters.get("description", "")
+            parts = [f"Perform a '{request.task_type}' task: {desc}".rstrip(": ") + "."]
         if request.parameters:
             parts.append(f"Parameters: {request.parameters}")
         return " ".join(parts)
@@ -539,22 +676,31 @@ class MechanicalAgent:
                 ],
             )
 
-        # Verify work_product exists
-        work_product = await self.twin.get_work_product(
-            request.work_product_id, branch=request.branch
-        )
-        if work_product is None:
-            return TaskResult(
-                task_type=request.task_type,
-                work_product_id=request.work_product_id,
-                success=False,
-                errors=[
-                    f"WorkProduct {request.work_product_id} not found on branch '{request.branch}'"
-                ],
+        # Verify work_product exists (skip for generative actions without one)
+        if request.work_product_id is not None:
+            work_product = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
             )
+            if work_product is None:
+                wp = request.work_product_id
+                return TaskResult(
+                    task_type=request.task_type,
+                    work_product_id=wp,
+                    success=False,
+                    errors=[f"WorkProduct {wp} not found on branch '{request.branch}'"],
+                )
 
-        # Route to handler
-        handler = self._get_handler(request.task_type)
+        # Route to handler. For generate_cad with a prompt/description
+        # but no shape_type, use the script-based generation path which
+        # takes a natural language description.
+        task = request.task_type
+        if task == "generate_cad" and not request.parameters.get("shape_type"):
+            desc = request.parameters.get("prompt") or request.parameters.get("description")
+            if desc:
+                task = "generate_cad_script"
+                request.parameters["description"] = desc
+
+        handler = self._get_handler(task)
         return await handler(request)
 
     def _get_handler(
@@ -791,6 +937,8 @@ class MechanicalAgent:
                 skill_result_dict,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.inp"
         except Exception as exc:
             self.logger.warning("writeback_mesh_failed", error=str(exc))
 
@@ -858,9 +1006,14 @@ class MechanicalAgent:
         }
 
         # Writeback: create a new CAD_MODEL WorkProduct
-        # Extract project_id from the source WorkProduct metadata (if present)
-        src_wp = await self.twin.get_work_product(request.work_product_id, branch=request.branch)
-        pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "") if src_wp else ""
+        # Get project_id from request parameters or source WorkProduct metadata
+        pid = request.parameters.get("project_id", "")
+        if not pid and request.work_product_id is not None:
+            src_wp = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
+            )
+            if src_wp:
+                pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "")
         try:
             wb = await writeback_cad(
                 self.twin,
@@ -870,6 +1023,8 @@ class MechanicalAgent:
                 project_id=pid,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.step"
             if pid:
                 from api_gateway.projects.routes import link_work_product_to_project
 
@@ -926,8 +1081,14 @@ class MechanicalAgent:
         }
 
         # Writeback: create a new CAD_MODEL WorkProduct
-        src_wp = await self.twin.get_work_product(request.work_product_id, branch=request.branch)
-        pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "") if src_wp else ""
+        # Get project_id from source work product or from request parameters
+        pid = request.parameters.get("project_id", "")
+        if not pid and request.work_product_id is not None:
+            src_wp = await self.twin.get_work_product(
+                request.work_product_id, branch=request.branch
+            )
+            if src_wp:
+                pid = (getattr(src_wp, "metadata", {}) or {}).get("project_id", "")
         try:
             wb = await writeback_cad(
                 self.twin,
@@ -937,6 +1098,8 @@ class MechanicalAgent:
                 project_id=pid,
             )
             skill_result_dict["work_product_id"] = str(wb.id)
+            skill_result_dict["deliverable_url"] = f"/v1/twin/nodes/{wb.id}/model"
+            skill_result_dict["deliverable_name"] = f"{wb.name}.step"
             if pid:
                 from api_gateway.projects.routes import link_work_product_to_project
 

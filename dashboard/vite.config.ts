@@ -32,7 +32,7 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   server: {
-    port: 5173,
+    port: 3000,
     watch: {
       // Enable polling for WSL2 — inotify events don't cross the
       // Windows ↔ Linux filesystem boundary.

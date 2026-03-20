@@ -279,6 +279,41 @@ Key architectural rules:
 
 Follow existing patterns in `observability/tracing.py` (get_tracer, NoOpTracer fallback) and `observability/metrics.py` (MetricDefinition, MetricsRegistry). The system degrades gracefully without the OTel SDK installed.
 
+## Observability Stack (Grafana)
+
+The dev environment includes a full observability stack accessible via Grafana MCP:
+
+| Datasource | UID | Purpose |
+|-----------|-----|---------|
+| Prometheus | `PBFA97CFB590B2093` | Metrics (HTTP latency, error rates, agent task counters) |
+| Loki | `loki` | Structured logs (all gateway/agent logs via OTel) |
+| Tempo | `P214B5B846CF3925F` | Distributed traces (spans across gateway → orchestrator → agent → skill) |
+
+### Log Labels
+
+Loki logs are labeled with `service_name` (currently `metaforge-gateway`) and `deployment_environment` (`docker`). Each log entry includes OTel context: `trace_id`, `span_id`, `scope_name` (logger), `severity_text`, and `code_file_path`.
+
+### Custom Agents & Commands
+
+| Agent / Command | File | Purpose |
+|----------------|------|---------|
+| `dashboard-tester` | `.claude/agents/dashboard-tester.agent.md` | E2E dashboard testing via Playwright + Grafana observability validation |
+| `bug-hunter` | `.claude/agents/bug-hunter.agent.md` | Scans Grafana for errors/anomalies, triages, deduplicates against Linear, files bugs |
+| `/test-dashboard` | `.claude/commands/test-dashboard.md` | Launch dashboard-tester agent with scenario or natural language |
+| `/bug-hunt` | `.claude/commands/bug-hunt.md` | Launch bug-hunter agent — scan last 1h (default), custom window, or focused search |
+
+### Bug Hunt Workflow
+
+`/bug-hunt` runs a 5-phase pipeline:
+
+1. **Pre-flight** — verify Grafana datasources are reachable
+2. **Scan** — Loki error logs, error patterns, Prometheus error rates, latency anomalies, firing alerts
+3. **Triage** — classify severity, enrich with trace context + source code, generate Grafana deeplinks, deduplicate against Linear
+4. **Report** — structured findings with code context and Grafana links
+5. **File** — create Linear issues (only after user approval)
+
+Scoped to **gateway** and **dashboard** services only. Never auto-files bugs without user confirmation.
+
 ## Critical Constraints
 
 1. Never claim Phase 1 has KiCad schematic generation (that's Phase 2 write capability)
