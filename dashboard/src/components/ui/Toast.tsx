@@ -21,7 +21,7 @@ interface ToastStore {
 
 // ── Zustand store ────────────────────────────────────────────────────────────
 
-const useToastStore = create<ToastStore>((set) => ({
+export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
   add: (variant, message) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;

@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '../../../test/test-utils';
-import { Toaster, useToast } from '../Toast';
+import { Toaster, useToast, useToastStore } from '../Toast';
 import { renderHook } from '@testing-library/react';
 
 describe('Toaster', () => {
+  beforeEach(() => {
+    act(() => { useToastStore.setState({ toasts: [] }); });
+  });
+
   it('renders nothing when no toasts', () => {
     const { container } = render(<Toaster />);
     expect(container.firstChild).toBeNull();

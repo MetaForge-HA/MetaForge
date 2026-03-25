@@ -52,7 +52,7 @@ function useBreadcrumbs(): { segments: BreadcrumbSegment[]; pageTitle: string } 
 
   // Derive the current page name for <title>
   const topLevelSegment = parts[0] ?? '';
-  const pageTitle = SEGMENT_LABELS[topLevelSegment] ?? (topLevelSegment.charAt(0).toUpperCase() + topLevelSegment.slice(1)) || 'Dashboard';
+  const pageTitle = SEGMENT_LABELS[topLevelSegment] ?? (topLevelSegment.charAt(0).toUpperCase() + topLevelSegment.slice(1) || 'Dashboard');
 
   return { segments, pageTitle };
 }
