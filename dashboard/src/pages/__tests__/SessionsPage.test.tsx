@@ -12,15 +12,15 @@ const mockUseSessions = vi.mocked(useSessions);
 
 describe('SessionsPage', () => {
   it('shows loading state', () => {
-    mockUseSessions.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useSessions>);
+    mockUseSessions.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useSessions>);
     render(<SessionsPage />);
-    expect(screen.getByText('Loading sessions...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('shows empty state', () => {
-    mockUseSessions.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useSessions>);
+    mockUseSessions.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useSessions>);
     render(<SessionsPage />);
-    expect(screen.getByText('No sessions')).toBeInTheDocument();
+    expect(screen.getByText('No agent sessions yet')).toBeInTheDocument();
   });
 
   it('renders session list', () => {
@@ -29,6 +29,8 @@ describe('SessionsPage', () => {
         { id: 's1', agentCode: 'MECH', taskType: 'validate_stress', status: 'completed', startedAt: new Date().toISOString(), events: [] },
       ],
       isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSessions>);
     render(<SessionsPage />);
     expect(screen.getByText('validate stress')).toBeInTheDocument();

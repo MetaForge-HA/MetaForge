@@ -15,7 +15,7 @@ describe('ProjectsPage', () => {
   it('shows loading state', () => {
     mockUseProjects.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useProjects>);
     render(<ProjectsPage />);
-    expect(screen.getByText('Loading projects...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('shows empty state', () => {

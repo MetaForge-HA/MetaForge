@@ -4,6 +4,8 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonCard } from '../components/ui/Skeleton';
+import { useToast } from '../components/ui/Toast';
 import { formatRelativeTime } from '../utils/format-time';
 import { useScopedChat } from '../hooks/use-scoped-chat';
 import { ApprovalChatPanel } from '../components/chat/integrations/ApprovalChatPanel';
@@ -11,6 +13,7 @@ import type { Proposal } from '../api/endpoints/assistant';
 
 function ProposalCard({ proposal }: { proposal: Proposal }) {
   const decide = useDecideProposal();
+  const toast = useToast();
   const [chatOpen, setChatOpen] = useState(false);
   const isPending = proposal.status === 'pending';
 
@@ -21,12 +24,22 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
   });
 
   function handleDecision(decision: 'approve' | 'reject') {
-    decide.mutate({
-      changeId: proposal.change_id,
-      decision,
-      reason: decision === 'approve' ? 'Approved via dashboard' : 'Rejected via dashboard',
-      reviewer: 'dashboard-user',
-    });
+    decide.mutate(
+      {
+        changeId: proposal.change_id,
+        decision,
+        reason: decision === 'approve' ? 'Approved via dashboard' : 'Rejected via dashboard',
+        reviewer: 'dashboard-user',
+      },
+      {
+        onSuccess: () => {
+          toast.success(decision === 'approve' ? 'Proposal approved.' : 'Proposal rejected.');
+        },
+        onError: (err) => {
+          toast.error((err as Error)?.message ?? 'Failed to process decision.');
+        },
+      },
+    );
   }
 
   return (
@@ -112,10 +125,46 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
 }
 
 export function ApprovalsPage() {
-  const { data, isLoading } = useProposals();
+  const { data, isLoading, isError, refetch } = useProposals();
 
   if (isLoading) {
-    return <div className="text-sm text-zinc-500">Loading proposals...</div>;
+    return (
+      <div data-testid="loading-skeleton">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Approvals
+          </h2>
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Approvals
+          </h2>
+        </div>
+        <Card className="flex flex-col items-center py-12 text-center">
+          <p className="text-base font-medium text-red-600 dark:text-red-400">
+            Failed to load proposals
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            There was a problem fetching pending approvals.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   const proposals = data?.proposals ?? [];
@@ -131,7 +180,7 @@ export function ApprovalsPage() {
 
       {proposals.length === 0 ? (
         <EmptyState
-          title="No proposals"
+          title="No pending approvals"
           description="Agent proposals requiring review will appear here."
         />
       ) : (

@@ -1,15 +1,49 @@
 import { Link } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonList } from '../components/ui/Skeleton';
 import { formatRelativeTime } from '../utils/format-time';
 import { useSessions } from '../hooks/use-sessions';
 
 export function SessionsPage() {
-  const { data: sessions, isLoading } = useSessions();
+  const { data: sessions, isLoading, isError, refetch } = useSessions();
 
   if (isLoading) {
-    return <div className="text-sm text-zinc-500">Loading sessions...</div>;
+    return (
+      <div data-testid="loading-skeleton">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Agent Sessions
+          </h2>
+        </div>
+        <SkeletonList rows={5} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Agent Sessions
+          </h2>
+        </div>
+        <Card className="flex flex-col items-center py-12 text-center">
+          <p className="text-base font-medium text-red-600 dark:text-red-400">
+            Failed to load sessions
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            There was a problem fetching agent sessions.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   const items = sessions ?? [];
@@ -25,7 +59,7 @@ export function SessionsPage() {
 
       {items.length === 0 ? (
         <EmptyState
-          title="No sessions"
+          title="No agent sessions yet"
           description="Agent sessions will appear here when workflows run."
         />
       ) : (

@@ -1,7 +1,9 @@
 import { Link, useParams } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonList } from '../components/ui/Skeleton';
 import { formatRelativeTime } from '../utils/format-time';
 import { useSession } from '../hooks/use-sessions';
 import { useScopedChat } from '../hooks/use-scoped-chat';
@@ -24,7 +26,7 @@ const EVENT_COLORS: Record<AgentEvent['type'], string> = {
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: session, isLoading } = useSession(id);
+  const { data: session, isLoading, isError, refetch } = useSession(id);
 
   const chat = useScopedChat({
     scopeKind: 'session',
@@ -32,7 +34,41 @@ export function SessionDetailPage() {
   });
 
   if (isLoading) {
-    return <div className="text-sm text-zinc-500">Loading session...</div>;
+    return (
+      <div data-testid="loading-skeleton">
+        <div className="mb-6">
+          <div className="mb-1 h-4 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+          <div className="mb-4 h-7 w-64 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+        </div>
+        <SkeletonList rows={4} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <div className="mb-1">
+          <Link
+            to="/sessions"
+            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+          >
+            &larr; Sessions
+          </Link>
+        </div>
+        <Card className="mt-4 flex flex-col items-center py-12 text-center">
+          <p className="text-base font-medium text-red-600 dark:text-red-400">
+            Failed to load session
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            There was a problem fetching session details.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   if (!session) {

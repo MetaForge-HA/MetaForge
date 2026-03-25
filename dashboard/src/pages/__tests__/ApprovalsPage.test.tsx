@@ -28,13 +28,13 @@ describe('ApprovalsPage', () => {
   it('shows loading state', () => {
     mockUseProposals.mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<typeof useProposals>);
     render(<ApprovalsPage />);
-    expect(screen.getByText('Loading proposals...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('shows empty state', () => {
     mockUseProposals.mockReturnValue({ data: { proposals: [], total: 0 }, isLoading: false } as unknown as ReturnType<typeof useProposals>);
     render(<ApprovalsPage />);
-    expect(screen.getByText('No proposals')).toBeInTheDocument();
+    expect(screen.getByText('No pending approvals')).toBeInTheDocument();
   });
 
   it('renders proposals', () => {

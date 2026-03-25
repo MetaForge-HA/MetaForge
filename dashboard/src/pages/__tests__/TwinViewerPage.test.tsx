@@ -71,14 +71,14 @@ const mockUseTwinNode = vi.mocked(useTwinNode);
 
 describe('TwinViewerPage', () => {
   it('renders Digital Twin Viewer heading', () => {
-    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useTwinNodes>);
+    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useTwinNodes>);
     mockUseTwinNode.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useTwinNode>);
     render(<TwinViewerPage />);
     expect(screen.getByText('Digital Twin Viewer')).toBeInTheDocument();
   });
 
   it('shows graph view with empty state by default', () => {
-    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useTwinNodes>);
+    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useTwinNodes>);
     mockUseTwinNode.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useTwinNode>);
     render(<TwinViewerPage />);
     expect(screen.getByText('Empty twin')).toBeInTheDocument();
@@ -90,6 +90,8 @@ describe('TwinViewerPage', () => {
         { id: 'n1', name: 'bracket-v1.step', type: 'work_product', domain: 'mechanical', status: 'valid', properties: {}, updatedAt: new Date().toISOString() },
       ],
       isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
     } as unknown as ReturnType<typeof useTwinNodes>);
     mockUseTwinNode.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useTwinNode>);
     render(<TwinViewerPage />);
@@ -97,7 +99,7 @@ describe('TwinViewerPage', () => {
   });
 
   it('shows view mode toggle buttons', () => {
-    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useTwinNodes>);
+    mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useTwinNodes>);
     mockUseTwinNode.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useTwinNode>);
     render(<TwinViewerPage />);
     expect(screen.getByText('3D Model')).toBeInTheDocument();

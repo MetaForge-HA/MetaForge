@@ -4,6 +4,7 @@ import { useProjects } from '../hooks/use-projects';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
+import { useToast } from '../components/ui/Toast';
 import { formatRelativeTime } from '../utils/format-time';
 import type { RunStatusResponse } from '../api/endpoints/assistant';
 
@@ -231,6 +232,7 @@ export function DesignAssistantPage() {
   const { data: projects } = useProjects();
   const submitRequest = useSubmitRequest();
   const { data: runStatus } = useRunStatus(runId);
+  const toast = useToast();
 
   const isRunning =
     runStatus?.status === 'running' || runStatus?.status === 'pending';
@@ -262,6 +264,10 @@ export function DesignAssistantPage() {
             (response.result?.run_id as string) ??
             response.request_id;
           setRunId(id);
+          toast.info('Request submitted — tracking progress below.');
+        },
+        onError: (err) => {
+          toast.error((err as Error)?.message ?? 'Failed to submit request.');
         },
       },
     );

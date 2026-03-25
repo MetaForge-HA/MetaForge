@@ -4,6 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonCard } from '../components/ui/Skeleton';
 import { formatRelativeTime } from '../utils/format-time';
 import { useTwinNodes, useTwinNode } from '../hooks/use-twin';
 import { useScopedChat } from '../hooks/use-scoped-chat';
@@ -122,12 +123,37 @@ function NodeDetail({ node }: { node: TwinNode }) {
 }
 
 function GraphView() {
-  const { data: nodes, isLoading } = useTwinNodes();
+  const { data: nodes, isLoading, isError, refetch } = useTwinNodes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: selectedNode } = useTwinNode(selectedId ?? undefined);
 
   if (isLoading) {
-    return <div className="text-sm text-zinc-500">Loading twin graph...</div>;
+    return (
+      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+        <SkeletonCard />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="flex flex-col items-center py-12 text-center">
+        <p className="text-base font-medium text-red-600 dark:text-red-400">
+          Failed to load twin graph
+        </p>
+        <p className="mt-1 text-sm text-zinc-500">
+          There was a problem fetching Digital Twin nodes.
+        </p>
+        <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </Card>
+    );
   }
 
   const items = nodes ?? [];

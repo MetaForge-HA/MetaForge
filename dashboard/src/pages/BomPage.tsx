@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonTable } from '../components/ui/Skeleton';
 import { useBom } from '../hooks/use-bom';
 import { useScopedChat } from '../hooks/use-scoped-chat';
 import { ComponentChatPanel } from '../components/chat/integrations/ComponentChatPanel';
@@ -71,10 +73,42 @@ function BomRow({ component }: { component: BomComponent }) {
 }
 
 export function BomPage() {
-  const { data: components, isLoading } = useBom();
+  const { data: components, isLoading, isError, refetch } = useBom();
 
   if (isLoading) {
-    return <div className="text-sm text-zinc-500">Loading BOM...</div>;
+    return (
+      <div data-testid="loading-skeleton">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Bill of Materials
+          </h2>
+        </div>
+        <SkeletonTable rows={8} cols={5} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+            Bill of Materials
+          </h2>
+        </div>
+        <Card className="flex flex-col items-center py-12 text-center">
+          <p className="text-base font-medium text-red-600 dark:text-red-400">
+            Failed to load BOM
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            There was a problem fetching the bill of materials.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
   const items = components ?? [];
@@ -93,7 +127,7 @@ export function BomPage() {
 
       {items.length === 0 ? (
         <EmptyState
-          title="No components"
+          title="No BOM entries"
           description="BOM components will appear here when a project is loaded."
         />
       ) : (

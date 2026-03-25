@@ -27,13 +27,13 @@ describe('BomPage', () => {
   it('shows loading state', () => {
     mockUseBom.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useBom>);
     render(<BomPage />);
-    expect(screen.getByText('Loading BOM...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('shows empty state', () => {
     mockUseBom.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useBom>);
     render(<BomPage />);
-    expect(screen.getByText('No components')).toBeInTheDocument();
+    expect(screen.getByText('No BOM entries')).toBeInTheDocument();
   });
 
   it('renders BOM table', () => {

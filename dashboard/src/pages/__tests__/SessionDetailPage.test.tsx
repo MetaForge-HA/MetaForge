@@ -30,13 +30,13 @@ const mockUseSession = vi.mocked(useSession);
 
 describe('SessionDetailPage', () => {
   it('shows loading state', () => {
-    mockUseSession.mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useSession>);
+    mockUseSession.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useSession>);
     render(<SessionDetailPage />);
-    expect(screen.getByText('Loading session...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('shows not found', () => {
-    mockUseSession.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useSession>);
+    mockUseSession.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useSession>);
     render(<SessionDetailPage />);
     expect(screen.getByText('Session not found')).toBeInTheDocument();
   });
@@ -56,6 +56,8 @@ describe('SessionDetailPage', () => {
         ],
       },
       isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSession>);
     render(<SessionDetailPage />);
     expect(screen.getByText('validate stress')).toBeInTheDocument();
