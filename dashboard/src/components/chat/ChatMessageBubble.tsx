@@ -139,18 +139,38 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+/** Map an agent code to a background color class. */
+function agentColorClass(agentCode: string | undefined): string {
+  switch (agentCode) {
+    case 'ME':
+      return 'bg-blue-500 text-white';
+    case 'EE':
+      return 'bg-green-500 text-white';
+    case 'FW':
+      return 'bg-orange-500 text-white';
+    case 'SIM':
+      return 'bg-purple-500 text-white';
+    case 'SC':
+      return 'bg-cyan-500 text-white';
+    default:
+      return 'bg-zinc-500 text-white';
+  }
+}
+
 /** Circular avatar showing a user initial or agent code. */
 function ActorAvatar({
   label,
   variant,
+  agentCode,
 }: {
   label: string;
   variant: 'user' | 'agent';
+  agentCode?: string;
 }) {
   const bg =
     variant === 'user'
       ? 'bg-blue-600 text-white'
-      : 'bg-emerald-600 text-white';
+      : agentColorClass(agentCode);
 
   return (
     <span
@@ -212,7 +232,10 @@ export function ChatMessageBubble({
       <div className="flex justify-center px-4 py-1">
         <div className="max-w-md rounded-lg bg-zinc-100/50 px-4 py-2 text-center text-sm italic text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400">
           {renderMarkdown(content)}
-          <div className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+          <div
+            className="mt-1 text-xs text-zinc-400 dark:text-zinc-500"
+            title={new Date(createdAt).toLocaleString()}
+          >
             {formatRelativeTime(createdAt)}
           </div>
         </div>
@@ -235,6 +258,7 @@ export function ChatMessageBubble({
       <ActorAvatar
         label={avatarLabel}
         variant={isUser ? 'user' : 'agent'}
+        agentCode={actor.agentCode}
       />
 
       {/* Bubble */}
@@ -268,7 +292,7 @@ export function ChatMessageBubble({
 
         {/* Footer: timestamp + status */}
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-          <span>{formatRelativeTime(createdAt)}</span>
+          <span title={new Date(createdAt).toLocaleString()}>{formatRelativeTime(createdAt)}</span>
           {status === 'sending' && <span>Sending...</span>}
           {status === 'error' && (
             <span className="text-red-500">Failed to send</span>
