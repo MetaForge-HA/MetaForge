@@ -1,9 +1,15 @@
+import { useLocation } from 'react-router-dom';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ChatSidebar } from '../chat/ChatSidebar';
+import { FloatingAssistantInput } from './FloatingAssistantInput';
 
 export function AppLayout() {
+  const location = useLocation();
+  // Design Assistant already has a full embedded chat — don't render the pill there
+  const showPill = location.pathname !== '/assistant';
+
   return (
     <div className="flex h-screen overflow-hidden bg-surface text-on-surface">
       {/* 48px icon-only nav rail */}
@@ -18,6 +24,9 @@ export function AppLayout() {
       </div>
 
       <ChatSidebar />
+
+      {/* Floating assistant input pill — present on all pages except Design Assistant */}
+      {showPill && <FloatingAssistantInput />}
     </div>
   );
 }
