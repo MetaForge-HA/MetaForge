@@ -102,8 +102,8 @@ describe('TwinViewerPage', () => {
     mockUseTwinNodes.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() } as unknown as ReturnType<typeof useTwinNodes>);
     mockUseTwinNode.mockReturnValue({ data: undefined, isLoading: false } as ReturnType<typeof useTwinNode>);
     render(<TwinViewerPage />);
-    // KC uses short labels: '3D' and 'Graph'
-    expect(screen.getByText('3D')).toBeInTheDocument();
-    expect(screen.getByText('Graph')).toBeInTheDocument();
+    // KC spec uses 'MODEL' and 'GRAPH' (uppercase monospace) in the segmented toggle
+    expect(screen.getByText('MODEL')).toBeInTheDocument();
+    expect(screen.getAllByText('GRAPH').length).toBeGreaterThanOrEqual(1);
   });
 });

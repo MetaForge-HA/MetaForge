@@ -1,10 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ChevronDown, Eye } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
-import { EmptyState } from '../components/ui/EmptyState';
 import { formatRelativeTime } from '../utils/format-time';
-import { useTwinNodes, useTwinNode } from '../hooks/use-twin';
+import { useTwinNodes, useTwinNode, useTwinRelationships } from '../hooks/use-twin';
 import { useScopedChat } from '../hooks/use-scoped-chat';
 import { NodeChatPanel } from '../components/chat/integrations/NodeChatPanel';
 import { R3FViewer } from '../components/viewer/R3FViewer';
@@ -18,47 +17,107 @@ import { getNodeModel } from '../api/endpoints/twin';
 import type { TwinNode } from '../types/twin';
 import type { ModelManifest, PartInfo, PartTreeNode } from '../types/viewer';
 
-// ── Node type → Material Symbol icon name ──────────────────────────────────
-const TYPE_ICONS: Record<TwinNode['type'], string> = {
+// ── KC tokens ────────────────────────────────────────────────────────────────
+const KC = {
+  surface: '#111319',
+  surfaceLow: '#191b22',
+  surfaceContainer: 'rgba(30,31,38,0.88)',
+  surfaceHigh: '#282a30',
+  border: 'rgba(65,72,90,0.2)',
+  borderMid: 'rgba(65,72,90,0.3)',
+  onSurface: '#e2e2eb',
+  onSurfaceVariant: '#9a9aaa',
+  orange: '#e67e22',
+  orangeFaint: 'rgba(230,126,34,0.15)',
+  orangeBorder: 'rgba(230,126,34,0.45)',
+  teal: '#86cfff',
+  green: '#3dd68c',
+  statusBar: 'rgba(12,14,20,0.95)',
+} as const;
+
+// ── Icon map ─────────────────────────────────────────────────────────────────
+const NODE_ICONS: Record<TwinNode['type'], string> = {
   work_product: 'description',
-  constraint: 'lock',
+  constraint: 'rule',
   relationship: 'link',
   version: 'label',
 };
 
-// ── Node type label ─────────────────────────────────────────────────────────
-const TYPE_LABELS: Record<TwinNode['type'], string> = {
-  work_product: 'WP',
-  constraint: 'CON',
-  relationship: 'REL',
-  version: 'VER',
-};
+// ── Small helpers ─────────────────────────────────────────────────────────────
 
-// ── Status dot color (6 px circle) ─────────────────────────────────────────
-function StatusDot({ status }: { status: string }) {
-  const color =
-    status === 'running'
-      ? '#f59e0b'
-      : status === 'active' || status === 'completed' || status === 'valid' || status === 'ready'
-      ? '#3dd68c'
-      : '#6b7280';
+function GlassPanel({
+  children,
+  style,
+  className,
+}: {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
   return (
-    <span
-      aria-hidden="true"
+    <div
+      className={className}
       style={{
-        display: 'inline-block',
-        width: 6,
-        height: 6,
-        borderRadius: '50%',
-        background: color,
-        flexShrink: 0,
+        background: KC.surfaceContainer,
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: `1px solid ${KC.border}`,
+        borderRadius: 6,
+        ...style,
       }}
-    />
+    >
+      {children}
+    </div>
   );
 }
 
-// ── NodeDetail ──────────────────────────────────────────────────────────────
-function NodeDetail({ node }: { node: TwinNode }) {
+function ToolBtn({
+  icon,
+  active,
+  title,
+  onClick,
+}: {
+  icon: string;
+  active?: boolean;
+  title: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      style={{
+        width: 48,
+        height: 48,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: active ? 'rgba(40,42,48,0.9)' : 'transparent',
+        borderLeft: `2px solid ${active ? KC.orange : 'transparent'}`,
+        border: 'none',
+        borderLeftWidth: 2,
+        borderLeftStyle: 'solid',
+        borderLeftColor: active ? KC.orange : 'transparent',
+        color: active ? KC.orange : KC.onSurfaceVariant,
+        cursor: 'pointer',
+        transition: 'color 0.12s, background 0.12s',
+        outline: 'none',
+      }}
+      onMouseEnter={(e) => {
+        if (!active) (e.currentTarget as HTMLButtonElement).style.background = KC.surfaceHigh;
+      }}
+      onMouseLeave={(e) => {
+        if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+      }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
+    </button>
+  );
+}
+
+// ── NodeDetail (right floating panel) ────────────────────────────────────────
+function NodeDetail({ node, onClose }: { node: TwinNode; onClose: () => void }) {
   const chat = useScopedChat({
     scopeKind: 'digital-twin-node',
     entityId: node.id,
@@ -67,7 +126,6 @@ function NodeDetail({ node }: { node: TwinNode }) {
   const loadModel = useViewerStore((s) => s.loadModel);
   const setViewMode = useViewerStore((s) => s.setViewMode);
   const [loading3d, setLoading3d] = useState(false);
-
   const isCAD = node.properties.wp_type === 'cad_model';
 
   const handleView3D = useCallback(async () => {
@@ -85,9 +143,7 @@ function NodeDetail({ node }: { node: TwinNode }) {
         materials: result.metadata.materials ?? [],
         stats: result.metadata.stats ?? { triangleCount: 0, fileSize: 0 },
       };
-      const glbUrl = result.glb_url.startsWith('/v1/')
-        ? `/api${result.glb_url}`
-        : result.glb_url;
+      const glbUrl = result.glb_url.startsWith('/v1/') ? `/api${result.glb_url}` : result.glb_url;
       loadModel(glbUrl, manifest);
       setViewMode('3d');
     } catch (err) {
@@ -98,270 +154,226 @@ function NodeDetail({ node }: { node: TwinNode }) {
   }, [node.id, loadModel, setViewMode]);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* Node header */}
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div
-        className="px-4 py-3 flex-shrink-0"
-        style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}
+        className="flex items-center justify-between px-3 flex-shrink-0"
+        style={{ height: 36, borderBottom: `1px solid ${KC.border}` }}
       >
-        <div className="flex items-center gap-2 mb-1">
-          <span className="material-symbols-outlined" style={{ color: '#9a9aaa', fontSize: 16 }}>
-            {TYPE_ICONS[node.type]}
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined" style={{ fontSize: 14, color: KC.orange }}>
+            {NODE_ICONS[node.type]}
           </span>
-          <span className="font-mono text-xs font-medium" style={{ color: '#e2e2eb' }}>
+          <span className="font-mono text-xs truncate" style={{ color: KC.onSurface, maxWidth: 180 }}>
             {node.name}
           </span>
-          <StatusDot status={node.status} />
         </div>
-        <div className="text-xs font-mono" style={{ color: '#9a9aaa' }}>
-          {node.domain} &middot; {node.type} &middot; {formatRelativeTime(node.updatedAt)}
-        </div>
-        <div className="mt-2">
+        <button
+          type="button"
+          onClick={onClose}
+          style={{ background: 'transparent', border: 'none', color: KC.onSurfaceVariant, cursor: 'pointer', padding: 4 }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = KC.onSurface; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = KC.onSurfaceVariant; }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Status + meta */}
+        <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${KC.border}` }}>
           <StatusBadge status={node.status} />
-        </div>
-      </div>
-
-      {/* View 3D button */}
-      {isCAD && (
-        <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleView3D}
-            disabled={loading3d}
-            className="text-xs"
-          >
-            <Eye size={13} className="mr-1.5" />
-            {loading3d ? 'Converting...' : 'View 3D Model'}
-          </Button>
-        </div>
-      )}
-
-      {/* Properties table */}
-      <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}>
-        <div
-          className="font-mono text-xs mb-2 uppercase tracking-widest"
-          style={{ color: '#9a9aaa', fontSize: 10, letterSpacing: '0.1em' }}
-        >
-          Properties
-        </div>
-        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <tbody>
-            {Object.entries(node.properties).map(([key, value]) => (
-              <tr key={key} style={{ borderBottom: '1px solid rgba(65,72,90,0.1)' }}>
-                <td
-                  className="py-1 pr-3 font-mono text-xs align-top"
-                  style={{ color: '#9a9aaa', width: '40%' }}
-                >
-                  {key}
-                </td>
-                <td
-                  className="py-1 font-mono text-xs align-top"
-                  style={{ color: '#e2e2eb' }}
-                >
-                  {String(value)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Chat panel */}
-      <div className="px-4 py-3 flex-1 min-h-0">
-        <NodeChatPanel
-          nodeId={node.id}
-          nodeName={node.name}
-          thread={chat.thread}
-          messages={chat.messages}
-          isTyping={chat.isTyping}
-          onSendMessage={chat.sendMessage}
-          onCreateThread={chat.createThread}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ── GraphView (two-panel: node list + node detail) ──────────────────────────
-function GraphView() {
-  const { data: nodes, isLoading } = useTwinNodes();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data: selectedNode } = useTwinNode(selectedId ?? undefined);
-
-  if (isLoading) {
-    return (
-      <div
-        className="flex-1 flex items-center justify-center font-mono text-xs"
-        style={{ color: '#9a9aaa' }}
-      >
-        Loading twin graph...
-      </div>
-    );
-  }
-
-  const items = nodes ?? [];
-
-  if (items.length === 0) {
-    return (
-      <EmptyState
-        title="Empty twin"
-        description="Digital Twin nodes will appear here when work_products are created."
-      />
-    );
-  }
-
-  return (
-    <div className="flex h-full">
-      {/* Left panel — node list */}
-      <div
-        className="glass flex flex-col overflow-hidden flex-shrink-0"
-        style={{
-          width: 260,
-          background: 'rgba(30,31,38,0.85)',
-          border: '1px solid rgba(65,72,90,0.2)',
-          borderRadius: 8,
-          margin: '12px 0 12px 12px',
-        }}
-      >
-        {/* Panel header */}
-        <div
-          className="px-3 py-2 flex-shrink-0 flex items-center gap-2"
-          style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#9a9aaa' }}>
-            hub
-          </span>
-          <span
-            className="font-mono uppercase tracking-widest"
-            style={{ fontSize: 10, color: '#9a9aaa', letterSpacing: '0.1em' }}
-          >
-            Nodes
-          </span>
-          <span
-            className="ml-auto font-mono rounded px-1.5"
-            style={{
-              fontSize: 10,
-              background: 'rgba(40,42,48,1)',
-              color: '#9a9aaa',
-            }}
-          >
-            {items.length}
-          </span>
+          <div className="font-mono mt-1" style={{ fontSize: 10, color: KC.onSurfaceVariant }}>
+            {node.domain} · {node.type} · {formatRelativeTime(node.updatedAt)}
+          </div>
         </div>
 
-        {/* Node list */}
-        <ul className="flex-1 overflow-y-auto" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {items.map((node) => {
-            const isActive = selectedId === node.id;
-            return (
-              <li key={node.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(node.id)}
-                  className="flex w-full items-center gap-2 text-left transition-colors"
-                  style={{
-                    height: 36,
-                    padding: '0 12px',
-                    background: isActive ? 'rgba(40,42,48,1)' : 'transparent',
-                    borderLeft: isActive ? '2px solid #e67e22' : '2px solid transparent',
-                    cursor: 'pointer',
-                    border: 'none',
-                    outline: 'none',
-                    width: '100%',
-                    borderLeftWidth: 2,
-                    borderLeftStyle: 'solid',
-                    borderLeftColor: isActive ? '#e67e22' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(40,42,48,0.6)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                    }
-                  }}
-                >
-                  <StatusDot status={node.status} />
-                  <span
-                    className="material-symbols-outlined flex-shrink-0"
-                    style={{
-                      fontSize: 14,
-                      color: isActive ? '#e67e22' : '#9a9aaa',
-                    }}
-                  >
-                    {TYPE_ICONS[node.type]}
-                  </span>
-                  <span
-                    className="flex-1 truncate font-mono text-xs"
-                    style={{ color: isActive ? '#e2e2eb' : '#9a9aaa' }}
-                  >
-                    {node.name}
-                  </span>
-                  <span
-                    className="font-mono rounded flex-shrink-0"
-                    style={{
-                      fontSize: 10,
-                      background: 'rgba(40,42,48,1)',
-                      color: '#9a9aaa',
-                      padding: '0 6px',
-                    }}
-                  >
-                    {TYPE_LABELS[node.type]}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {/* Right panel — node detail */}
-      <div
-        className="glass flex flex-col overflow-hidden flex-1"
-        style={{
-          background: 'rgba(30,31,38,0.85)',
-          border: '1px solid rgba(65,72,90,0.2)',
-          borderRadius: 8,
-          margin: '12px 12px 12px 8px',
-        }}
-      >
-        {selectedNode ? (
-          <NodeDetail node={selectedNode} />
-        ) : (
-          <div
-            className="flex flex-1 items-center justify-center font-mono text-xs"
-            style={{ color: '#9a9aaa' }}
-          >
-            Select a node to view details
+        {/* View 3D */}
+        {isCAD && (
+          <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${KC.border}` }}>
+            <Button variant="primary" size="sm" onClick={handleView3D} disabled={loading3d} className="text-xs w-full">
+              <span className="material-symbols-outlined" style={{ fontSize: 13, marginRight: 4, verticalAlign: 'middle' }}>view_in_ar</span>
+              {loading3d ? 'Loading…' : 'View 3D Model'}
+            </Button>
           </div>
         )}
+
+        {/* Properties */}
+        {Object.keys(node.properties).length > 0 && (
+          <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${KC.border}` }}>
+            <div className="font-mono uppercase mb-1.5" style={{ fontSize: 10, letterSpacing: '0.1em', color: KC.onSurfaceVariant }}>
+              Properties
+            </div>
+            <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+              <tbody>
+                {Object.entries(node.properties).map(([k, v]) => (
+                  <tr key={k} style={{ borderBottom: '1px solid rgba(65,72,90,0.1)' }}>
+                    <td className="py-1 pr-3 font-mono" style={{ fontSize: 11, color: KC.onSurfaceVariant, width: '40%' }}>{k}</td>
+                    <td className="py-1 font-mono" style={{ fontSize: 11, color: KC.onSurface }}>{String(v)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Chat */}
+        <div className="px-3 py-2 flex-1 min-h-0">
+          <NodeChatPanel
+            nodeId={node.id}
+            nodeName={node.name}
+            thread={chat.thread}
+            messages={chat.messages}
+            isTyping={chat.isTyping}
+            onSendMessage={chat.sendMessage}
+            onCreateThread={chat.createThread}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-// ── ConversionPhase ─────────────────────────────────────────────────────────
+// ── SceneDropdown ─────────────────────────────────────────────────────────────
+function SceneDropdown({
+  nodes,
+  selectedId,
+  onSelect,
+}: {
+  nodes: TwinNode[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 rounded px-3"
+        style={{
+          height: 28,
+          background: 'rgba(30,31,38,0.85)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          border: `1px solid ${KC.border}`,
+          fontSize: 11,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: KC.onSurfaceVariant,
+          cursor: 'pointer',
+          fontFamily: "'Roboto Mono', monospace",
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>account_tree</span>
+        SCENE
+        <span style={{ fontSize: 10, marginLeft: 1 }}>▾</span>
+      </button>
+
+      {open && (
+        <GlassPanel
+          style={{
+            position: 'absolute',
+            top: 36,
+            left: 0,
+            width: 232,
+            zIndex: 60,
+            overflow: 'hidden',
+            background: 'rgba(25,27,34,0.96)',
+          }}
+        >
+          <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${KC.border}` }}>
+            <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: KC.onSurfaceVariant }}>
+              Twin Nodes · {nodes.length}
+            </span>
+          </div>
+          <div className="py-1" style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {nodes.length === 0 ? (
+              <div className="px-3 py-2 font-mono" style={{ fontSize: 12, color: KC.onSurfaceVariant }}>
+                No nodes yet
+              </div>
+            ) : (
+              nodes.map((n) => {
+                const isActive = n.id === selectedId;
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => { onSelect(n.id); setOpen(false); }}
+                    className="flex items-center gap-2 w-full text-left"
+                    style={{
+                      padding: '6px 12px',
+                      background: isActive ? KC.orangeFaint : 'transparent',
+                      borderLeft: `2px solid ${isActive ? KC.orange : 'transparent'}`,
+                      color: isActive ? KC.orange : KC.onSurfaceVariant,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      border: 'none',
+                      borderLeftWidth: 2,
+                      borderLeftStyle: 'solid',
+                      borderLeftColor: isActive ? KC.orange : 'transparent',
+                      width: '100%',
+                      fontFamily: 'Inter, sans-serif',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = KC.surfaceHigh;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }}
+                  >
+                    <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14 }}>
+                      {NODE_ICONS[n.type]}
+                    </span>
+                    <span className="truncate">{n.name}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </GlassPanel>
+      )}
+    </div>
+  );
+}
+
+// ── TwinViewerPage ────────────────────────────────────────────────────────────
 type ConversionPhase = 'idle' | 'uploading' | 'converting' | 'loading';
 
-// ── ViewerToolbar ───────────────────────────────────────────────────────────
-function ViewerToolbar({
-  onToggleImport,
-  importOpen,
-}: {
-  onToggleImport: () => void;
-  importOpen: boolean;
-}) {
+export function TwinViewerPage() {
+  // ── state ──
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [conversionPhase, setConversionPhase] = useState<ConversionPhase>('idle');
+  const [quality, setQuality] = useState('standard');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadMutation = useUploadAndConvert();
+
+  // ── data ──
+  const { data: nodes, isLoading } = useTwinNodes();
+  const { data: selectedNode } = useTwinNode(selectedId ?? undefined);
+  useTwinRelationships();  // prefetch
+  const items = nodes ?? [];
+
+  // ── viewer store ──
   const viewMode = useViewerStore((s) => s.viewMode);
   const setViewMode = useViewerStore((s) => s.setViewMode);
-  const loadModel = useViewerStore((s) => s.loadModel);
+  const manifest = useViewerStore((s) => s.manifest);
   const glbUrl = useViewerStore((s) => s.glbUrl);
-  const [quality, setQuality] = useState('standard');
-  const [conversionPhase, setConversionPhase] = useState<ConversionPhase>('idle');
+  const selectPart = useViewerStore((s) => s.selectPart);
+  const selectedMeshName = useViewerStore((s) => s.selectedMeshName);
+  const loadModel = useViewerStore((s) => s.loadModel);
+
+  const uploadMutation = useUploadAndConvert();
 
   useEffect(() => {
     if (!uploadMutation.isPending) {
@@ -370,9 +382,7 @@ function ViewerToolbar({
         const t = setTimeout(() => setConversionPhase('idle'), 800);
         return () => clearTimeout(t);
       }
-      if (!uploadMutation.isSuccess) {
-        setConversionPhase('idle');
-      }
+      if (!uploadMutation.isSuccess) setConversionPhase('idle');
     }
   }, [uploadMutation.isPending, uploadMutation.isSuccess, conversionPhase]);
 
@@ -382,337 +392,551 @@ function ViewerToolbar({
       if (file) {
         setConversionPhase('uploading');
         const t = setTimeout(() => setConversionPhase('converting'), 1200);
-        uploadMutation.mutate(
-          { file, quality },
-          { onSettled: () => clearTimeout(t) },
-        );
+        uploadMutation.mutate({ file, quality }, { onSettled: () => clearTimeout(t) });
       }
     },
     [uploadMutation, quality],
   );
 
-  const handleLoadMock = useCallback(() => {
-    loadModel(getMockGlbUrl(), getMockManifest());
-  }, [loadModel]);
-
-  const toolbarBtn =
-    'bg-surface-high text-on-surface-variant hover:text-on-surface text-xs rounded px-2 py-1 transition-colors border-0 cursor-pointer';
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Import toggle */}
-      <button
-        type="button"
-        onClick={onToggleImport}
-        className={toolbarBtn}
-        style={
-          importOpen
-            ? { background: 'rgba(230,126,34,0.15)', color: '#e67e22' }
-            : undefined
-        }
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>
-          file_upload
-        </span>
-        Import
-      </button>
-
-      {/* View mode toggle */}
-      <div
-        className="flex items-center overflow-hidden rounded"
-        style={{ border: '1px solid rgba(65,72,90,0.3)' }}
-      >
-        <button
-          type="button"
-          onClick={() => setViewMode('3d')}
-          className="text-xs px-2 py-1 transition-colors border-0 cursor-pointer"
-          style={{
-            background: viewMode === '3d' ? 'rgba(230,126,34,0.15)' : 'rgba(40,42,48,0.9)',
-            color: viewMode === '3d' ? '#e67e22' : '#9a9aaa',
-            fontFamily: "'Roboto Mono', monospace",
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
-            view_in_ar
-          </span>
-          3D
-        </button>
-        <div style={{ width: 1, height: 16, background: 'rgba(65,72,90,0.4)' }} />
-        <button
-          type="button"
-          onClick={() => setViewMode('graph')}
-          className="text-xs px-2 py-1 transition-colors border-0 cursor-pointer"
-          style={{
-            background: viewMode === 'graph' ? 'rgba(230,126,34,0.15)' : 'rgba(40,42,48,0.9)',
-            color: viewMode === 'graph' ? '#e67e22' : '#9a9aaa',
-            fontFamily: "'Roboto Mono', monospace",
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
-            hub
-          </span>
-          Graph
-        </button>
-      </div>
-
-      {viewMode === '3d' && (
-        <>
-          {/* Quality selector */}
-          <div className="relative">
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value)}
-              className="appearance-none rounded text-xs px-2 py-1 pr-6 font-mono cursor-pointer"
-              style={{
-                background: 'rgba(40,42,48,0.9)',
-                border: '1px solid rgba(65,72,90,0.3)',
-                color: '#9a9aaa',
-              }}
-            >
-              <option value="preview">Preview</option>
-              <option value="standard">Standard</option>
-              <option value="fine">Fine</option>
-            </select>
-            <ChevronDown
-              size={11}
-              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2"
-              style={{ color: '#9a9aaa' }}
-            />
-          </div>
-
-          {/* Upload button / progress */}
-          {conversionPhase !== 'idle' ? (
-            <div
-              className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono"
-              style={{
-                background: 'rgba(40,42,48,0.9)',
-                border: '1px solid rgba(65,72,90,0.3)',
-                color: '#9a9aaa',
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#e67e22' }}>
-                sync
-              </span>
-              {conversionPhase === 'uploading'
-                ? 'Uploading...'
-                : conversionPhase === 'converting'
-                ? 'Converting...'
-                : 'Loading...'}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadMutation.isPending}
-              className={toolbarBtn}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
-                upload_file
-              </span>
-              Upload STEP
-            </button>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".step,.stp,.iges,.igs"
-            className="hidden"
-            onChange={handleUpload}
-          />
-
-          {/* Load demo */}
-          {!glbUrl && (
-            <button
-              type="button"
-              onClick={handleLoadMock}
-              className="text-xs rounded px-2 py-1 cursor-pointer transition-colors border-0"
-              style={{
-                background: 'transparent',
-                border: '1px dashed rgba(65,72,90,0.4)',
-                color: '#9a9aaa',
-              }}
-            >
-              Demo
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── TwinViewerPage ──────────────────────────────────────────────────────────
-export function TwinViewerPage() {
-  const viewMode = useViewerStore((s) => s.viewMode);
-  const manifest = useViewerStore((s) => s.manifest);
-  const glbUrl = useViewerStore((s) => s.glbUrl);
-  const selectPart = useViewerStore((s) => s.selectPart);
-  const selectedMeshName = useViewerStore((s) => s.selectedMeshName);
-  const { data: nodes } = useTwinNodes();
-  const [importOpen, setImportOpen] = useState(false);
-
   const handlePartClick = useCallback(
-    (part: PartInfo) => {
-      selectPart(part.meshName);
-    },
+    (part: PartInfo) => { selectPart(part.meshName); },
     [selectPart],
   );
 
-  const items = nodes ?? [];
+  const isGraphMode = viewMode === 'graph';
+
+  // ── status bar label ──
+  const statusLabel = isGraphMode ? 'GRAPH VIEW' : 'ORBIT MODE';
+  const statusCenter = isGraphMode
+    ? `${items.length} node${items.length !== 1 ? 's' : ''}`
+    : 'X  0.0    Y  0.0    Z  0.0';
 
   return (
+    /*
+     * Full-bleed canvas: escapes AppLayout's p-6 (24px) padding by using
+     * negative margins, then fills the remaining viewport height.
+     */
     <div
-      className="flex flex-col"
       style={{
-        height: 'calc(100vh - 4rem)',
-        background: '#111319',
+        position: 'relative',
+        margin: -24,
+        height: 'calc(100vh - 40px)', // 40px = h-10 topbar
+        overflow: 'hidden',
+        background: KC.surface,
+        backgroundImage: 'radial-gradient(circle, rgba(154,154,170,0.18) 1px, transparent 1px)',
+        backgroundSize: '32px 32px',
       }}
     >
-      {/* ── Header ── */}
-      <div
-        className="flex items-center justify-between px-4 flex-shrink-0"
-        style={{
-          height: 52,
-          borderBottom: '1px solid rgba(65,72,90,0.2)',
-          background: 'rgba(25,27,34,0.95)',
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined" style={{ color: '#e67e22', fontSize: 18 }}>
-            hub
-          </span>
-          <div>
-            <span
-              className="font-mono text-xs uppercase tracking-widest"
-              style={{ color: '#e2e2eb', letterSpacing: '0.1em' }}
-            >
-              Digital Twin
-            </span>
-            <span
-              className="ml-3 font-mono text-xs"
-              style={{ color: '#9a9aaa' }}
-            >
-              {items.length} node{items.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
 
-        <ViewerToolbar
-          onToggleImport={() => setImportOpen((prev) => !prev)}
-          importOpen={importOpen}
-        />
+      {/* ═══════════════════════════════════════════
+          CANVAS — full-bleed content area
+      ════════════════════════════════════════════ */}
+      <div style={{ position: 'absolute', inset: 0 }}>
+        {isGraphMode ? (
+          /* Graph mode: empty canvas with floating node panels */
+          isLoading ? (
+            <div className="flex items-center justify-center h-full font-mono text-xs" style={{ color: KC.onSurfaceVariant }}>
+              Loading twin graph…
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <span className="material-symbols-outlined" style={{ fontSize: 40, color: KC.onSurfaceVariant, opacity: 0.4 }}>hub</span>
+              <span className="font-mono text-xs" style={{ color: KC.onSurfaceVariant }}>Empty twin</span>
+              <span className="font-mono" style={{ fontSize: 11, color: KC.onSurfaceVariant, opacity: 0.6 }}>
+                Work products will appear here when agents run.
+              </span>
+            </div>
+          ) : null
+        ) : (
+          /* 3D model mode */
+          <>
+            <R3FViewer onPartClick={handlePartClick} />
+            {glbUrl && <ExplodedViewControls />}
+          </>
+        )}
       </div>
 
-      {/* ── Import slide-in panel ── */}
-      {importOpen && (
-        <div
-          className="flex-shrink-0 px-4 py-3"
+      {/* ═══════════════════════════════════════════
+          GRAPH MODE: floating node list (left)
+      ════════════════════════════════════════════ */}
+      {isGraphMode && items.length > 0 && (
+        <GlassPanel
           style={{
-            borderBottom: '1px solid rgba(65,72,90,0.2)',
-            background: 'rgba(30,31,38,0.95)',
+            position: 'absolute',
+            top: 56,
+            left: 16,
+            bottom: 48,
+            width: 260,
+            zIndex: 40,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
-          <div className="flex items-center justify-between mb-2">
+          <div
+            className="flex items-center gap-2 px-3 flex-shrink-0"
+            style={{ height: 36, borderBottom: `1px solid ${KC.border}` }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: KC.onSurfaceVariant }}>hub</span>
+            <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: KC.onSurfaceVariant }}>
+              Nodes
+            </span>
             <span
-              className="font-mono text-xs uppercase tracking-widest"
-              style={{ color: '#9a9aaa', letterSpacing: '0.1em' }}
+              className="ml-auto font-mono rounded px-1.5"
+              style={{ fontSize: 10, background: KC.surfaceHigh, color: KC.onSurfaceVariant }}
             >
+              {items.length}
+            </span>
+          </div>
+          <ul className="flex-1 overflow-y-auto" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {items.map((node) => {
+              const active = node.id === selectedId;
+              return (
+                <li key={node.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(active ? null : node.id)}
+                    className="flex w-full items-center gap-2 text-left"
+                    style={{
+                      height: 36,
+                      padding: '0 12px',
+                      background: active ? 'rgba(40,42,48,1)' : 'transparent',
+                      borderLeft: 'none',
+                      borderLeftWidth: 2,
+                      borderLeftStyle: 'solid',
+                      borderLeftColor: active ? KC.orange : 'transparent',
+                      cursor: 'pointer',
+                      border: 'none',
+                      outline: 'none',
+                      width: '100%',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(40,42,48,0.6)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }}
+                  >
+                    <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: node.status === 'valid' || node.status === 'active' ? KC.green : KC.onSurfaceVariant, flexShrink: 0 }} />
+                    <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14, color: active ? KC.orange : KC.onSurfaceVariant }}>
+                      {NODE_ICONS[node.type]}
+                    </span>
+                    <span className="flex-1 truncate font-mono" style={{ fontSize: 12, color: active ? KC.onSurface : KC.onSurfaceVariant }}>
+                      {node.name}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </GlassPanel>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          GRAPH MODE: floating node detail (right)
+      ════════════════════════════════════════════ */}
+      {isGraphMode && selectedNode && (
+        <GlassPanel
+          style={{
+            position: 'absolute',
+            top: 56,
+            right: 72, // leave room for right toolbar (48px) + gap
+            bottom: 48,
+            width: 320,
+            zIndex: 40,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <NodeDetail node={selectedNode} onClose={() => setSelectedId(null)} />
+        </GlassPanel>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          3D MODE: component tree (left panel)
+      ════════════════════════════════════════════ */}
+      {!isGraphMode && manifest && (
+        <GlassPanel
+          style={{
+            position: 'absolute',
+            top: 56,
+            left: 16,
+            bottom: 48,
+            width: 240,
+            zIndex: 40,
+            overflow: 'hidden',
+          }}
+        >
+          <ComponentTree />
+        </GlassPanel>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          3D MODE: BOM annotation panel (right)
+      ════════════════════════════════════════════ */}
+      {!isGraphMode && selectedMeshName && manifest && (
+        <GlassPanel
+          style={{
+            position: 'absolute',
+            top: 56,
+            right: 72,
+            bottom: 48,
+            width: 300,
+            zIndex: 40,
+            overflow: 'hidden',
+          }}
+        >
+          <BomAnnotationPanel />
+        </GlassPanel>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          TOP-LEFT: Scene dropdown + breadcrumb pill
+      ════════════════════════════════════════════ */}
+      <div
+        className="flex items-center gap-2"
+        style={{ position: 'absolute', top: 16, left: 16, zIndex: 50 }}
+      >
+        <SceneDropdown nodes={items} selectedId={selectedId} onSelect={setSelectedId} />
+
+        {/* Breadcrumb pill */}
+        <div
+          className="flex items-center gap-1.5 rounded px-3"
+          style={{
+            height: 28,
+            background: 'rgba(30,31,38,0.7)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: `1px solid ${KC.border}`,
+          }}
+        >
+          <span style={{ fontSize: 12, color: KC.onSurfaceVariant }}>Digital Twin</span>
+          {selectedNode && (
+            <>
+              <span style={{ fontSize: 11, color: 'rgba(154,154,170,0.4)' }}>›</span>
+              <span style={{ fontSize: 12, color: KC.onSurface }}>{selectedNode.name}</span>
+            </>
+          )}
+          <span
+            className="ml-2 rounded px-1.5 font-mono"
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              background: isGraphMode ? '#00a3e4' : KC.orange,
+              color: isGraphMode ? '#fff' : KC.surface,
+              letterSpacing: '0.04em',
+            }}
+          >
+            {isGraphMode ? 'GRAPH' : '3D'}
+          </span>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════
+          TOP-RIGHT: MODEL|GRAPH toggle + utility buttons
+      ════════════════════════════════════════════ */}
+      <div
+        className="flex items-center gap-2"
+        style={{ position: 'absolute', top: 16, right: 64, zIndex: 50 }}
+      >
+        {/* Import */}
+        <button
+          type="button"
+          onClick={() => setImportOpen((p) => !p)}
+          className="flex items-center gap-1.5 rounded px-2"
+          style={{
+            height: 28,
+            background: importOpen ? KC.orangeFaint : 'rgba(30,31,38,0.85)',
+            backdropFilter: 'blur(16px)',
+            border: `1px solid ${importOpen ? KC.orangeBorder : KC.borderMid}`,
+            color: importOpen ? KC.orange : KC.onSurfaceVariant,
+            fontSize: 11,
+            cursor: 'pointer',
+            letterSpacing: '0.06em',
+            fontFamily: "'Roboto Mono', monospace",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>file_upload</span>
+          IMPORT
+        </button>
+
+        {/* MODEL | GRAPH segmented toggle */}
+        <div
+          className="flex items-center rounded overflow-hidden"
+          style={{
+            background: 'rgba(25,27,34,0.9)',
+            backdropFilter: 'blur(16px)',
+            border: `1px solid ${KC.borderMid}`,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode('3d')}
+            style={{
+              padding: '0 12px',
+              height: 28,
+              fontSize: 11,
+              fontFamily: "'Roboto Mono', monospace",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              background: !isGraphMode ? KC.orangeFaint : 'transparent',
+              color: !isGraphMode ? KC.orange : KC.onSurfaceVariant,
+              border: 'none',
+              cursor: 'pointer',
+              transition: 'color 0.12s, background 0.12s',
+            }}
+          >
+            MODEL
+          </button>
+          <div style={{ width: 1, height: 16, background: 'rgba(65,72,90,0.4)' }} />
+          <button
+            type="button"
+            onClick={() => setViewMode('graph')}
+            style={{
+              padding: '0 12px',
+              height: 28,
+              fontSize: 11,
+              fontFamily: "'Roboto Mono', monospace",
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              background: isGraphMode ? KC.orangeFaint : 'transparent',
+              color: isGraphMode ? KC.orange : KC.onSurfaceVariant,
+              border: 'none',
+              cursor: 'pointer',
+              transition: 'color 0.12s, background 0.12s',
+            }}
+          >
+            GRAPH
+          </button>
+        </div>
+
+        {/* Layers */}
+        <button
+          type="button"
+          className="flex items-center justify-center rounded"
+          style={{
+            width: 32,
+            height: 32,
+            background: 'rgba(30,31,38,0.8)',
+            backdropFilter: 'blur(16px)',
+            border: `1px solid ${KC.border}`,
+            color: KC.onSurfaceVariant,
+            cursor: 'pointer',
+          }}
+          title="Layers"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>layers</span>
+        </button>
+
+        {/* Screenshot */}
+        <button
+          type="button"
+          className="flex items-center justify-center rounded"
+          style={{
+            width: 32,
+            height: 32,
+            background: 'rgba(30,31,38,0.8)',
+            backdropFilter: 'blur(16px)',
+            border: `1px solid ${KC.border}`,
+            color: KC.onSurfaceVariant,
+            cursor: 'pointer',
+          }}
+          title="Screenshot"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>photo_camera</span>
+        </button>
+      </div>
+
+      {/* ═══════════════════════════════════════════
+          RIGHT: Vertical viewport toolbar
+      ════════════════════════════════════════════ */}
+      <GlassPanel
+        style={{
+          position: 'absolute',
+          right: 16,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 50,
+          padding: '4px 0',
+          overflow: 'hidden',
+        }}
+      >
+        <ToolBtn icon="hub" active={isGraphMode} title="Graph View" onClick={() => setViewMode('graph')} />
+        <ToolBtn icon="account_tree" title="Tree View" />
+        <ToolBtn icon="filter_alt" title="Filter" />
+        <div style={{ height: 1, margin: '3px 8px', background: 'rgba(65,72,90,0.3)' }} />
+        <ToolBtn icon="timeline" title="Timeline" />
+        <ToolBtn icon="straighten" title="Measure" />
+      </GlassPanel>
+
+      {/* ═══════════════════════════════════════════
+          IMPORT PANEL (slide-in under top bar)
+      ════════════════════════════════════════════ */}
+      {importOpen && (
+        <GlassPanel
+          style={{
+            position: 'absolute',
+            top: 52,
+            right: 16,
+            width: 320,
+            zIndex: 50,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-3"
+            style={{ height: 36, borderBottom: `1px solid ${KC.border}` }}
+          >
+            <span className="font-mono uppercase" style={{ fontSize: 10, letterSpacing: '0.1em', color: KC.onSurfaceVariant }}>
               Import Work Product
             </span>
             <button
               type="button"
-              aria-label="Close import panel"
               onClick={() => setImportOpen(false)}
-              className="flex items-center justify-center rounded transition-colors cursor-pointer border-0 p-1"
-              style={{ background: 'transparent', color: '#9a9aaa' }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = '#e2e2eb';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color = '#9a9aaa';
-              }}
+              style={{ background: 'transparent', border: 'none', color: KC.onSurfaceVariant, cursor: 'pointer', padding: 4 }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                close
-              </span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
             </button>
           </div>
+          <div className="p-3">
+            {/* Quality + upload row */}
+            <div className="flex items-center gap-2 mb-3">
+              <select
+                value={quality}
+                onChange={(e) => setQuality(e.target.value)}
+                className="flex-1 font-mono rounded px-2 py-1 text-xs cursor-pointer"
+                style={{
+                  background: 'rgba(40,42,48,0.9)',
+                  border: `1px solid ${KC.border}`,
+                  color: KC.onSurfaceVariant,
+                }}
+              >
+                <option value="preview">Preview</option>
+                <option value="standard">Standard</option>
+                <option value="fine">Fine</option>
+              </select>
+              {conversionPhase !== 'idle' ? (
+                <div className="flex items-center gap-1.5 text-xs font-mono" style={{ color: KC.onSurfaceVariant }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: KC.orange }}>sync</span>
+                  {conversionPhase === 'uploading' ? 'Uploading…' : conversionPhase === 'converting' ? 'Converting…' : 'Loading…'}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadMutation.isPending}
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono cursor-pointer"
+                  style={{ background: KC.orange, color: KC.surface, border: 'none' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>upload_file</span>
+                  Upload STEP
+                </button>
+              )}
+              {!glbUrl && (
+                <button
+                  type="button"
+                  onClick={() => { loadModel(getMockGlbUrl(), getMockManifest()); setViewMode('3d'); setImportOpen(false); }}
+                  className="rounded px-2 py-1 text-xs font-mono cursor-pointer"
+                  style={{ background: 'transparent', border: `1px dashed ${KC.border}`, color: KC.onSurfaceVariant }}
+                >
+                  Demo
+                </button>
+              )}
+            </div>
 
-          {/* Drop zone */}
-          <div
-            className="flex flex-col items-center justify-center rounded cursor-pointer transition-colors"
+            {/* Drop zone */}
+            <div
+              className="flex flex-col items-center justify-center rounded cursor-pointer"
+              style={{
+                border: '2px dashed rgba(65,72,90,0.4)',
+                padding: '20px 16px',
+                textAlign: 'center',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(230,126,34,0.4)';
+                (e.currentTarget as HTMLDivElement).style.background = 'rgba(230,126,34,0.04)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(65,72,90,0.4)';
+                (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+              }}
+            >
+              <span className="material-symbols-outlined mb-1.5" style={{ fontSize: 24, color: KC.onSurfaceVariant }}>file_upload</span>
+              <p className="font-mono text-xs" style={{ color: KC.onSurface, marginBottom: 3 }}>
+                Drag & drop or click to browse
+              </p>
+              <p className="font-mono" style={{ fontSize: 10, color: KC.onSurfaceVariant }}>
+                .step .stp .iges .kicad_sch .kicad_pcb · max 100 MB
+              </p>
+            </div>
+          </div>
+          <input ref={fileInputRef} type="file" accept=".step,.stp,.iges,.igs" className="hidden" onChange={handleUpload} />
+        </GlassPanel>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          BOTTOM-LEFT: Sessions button
+      ════════════════════════════════════════════ */}
+      <div style={{ position: 'absolute', bottom: 40, left: 16, zIndex: 50 }}>
+        <Link to="/sessions" style={{ textDecoration: 'none' }}>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded px-3"
             style={{
-              border: '2px dashed rgba(65,72,90,0.4)',
-              padding: '24px 16px',
-              color: '#9a9aaa',
-              textAlign: 'center',
+              height: 32,
+              background: 'rgba(30,31,38,0.8)',
+              backdropFilter: 'blur(16px)',
+              border: `1px solid ${KC.border}`,
+              fontSize: 10,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: KC.onSurfaceVariant,
+              cursor: 'pointer',
+              fontFamily: "'Roboto Mono', monospace",
             }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(230,126,34,0.4)';
-              (e.currentTarget as HTMLDivElement).style.background = 'rgba(230,126,34,0.04)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(65,72,90,0.4)';
-              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = KC.onSurface; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = KC.onSurfaceVariant; }}
           >
-            <span className="material-symbols-outlined mb-2" style={{ fontSize: 28, color: '#9a9aaa' }}>
-              file_upload
-            </span>
-            <p className="font-mono text-xs" style={{ color: '#e2e2eb', marginBottom: 4 }}>
-              Drag &amp; drop a file here, or click to browse
-            </p>
-            <p className="font-mono" style={{ fontSize: 10, color: '#9a9aaa' }}>
-              .step .stp .iges .igs .kicad_sch .kicad_pcb .fcstd &middot; max 100 MB
-            </p>
-          </div>
-        </div>
-      )}
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
+            Sessions
+          </button>
+        </Link>
+      </div>
 
-      {/* ── Content ── */}
-      {viewMode === 'graph' ? (
-        <div className="flex flex-1 overflow-hidden">
-          <GraphView />
-        </div>
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Component Tree Sidebar */}
-          {manifest && (
-            <div
-              className="flex-shrink-0"
-              style={{
-                width: 240,
-                borderRight: '1px solid rgba(65,72,90,0.2)',
-              }}
-            >
-              <ComponentTree />
-            </div>
-          )}
+      {/* ═══════════════════════════════════════════
+          STATUS BAR — 32px pinned to bottom
+      ════════════════════════════════════════════ */}
+      <footer
+        className="flex items-center justify-between px-4"
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 32,
+          zIndex: 50,
+          background: KC.statusBar,
+        }}
+      >
+        <span
+          className="font-mono uppercase"
+          style={{ fontSize: 11, letterSpacing: '0.08em', color: KC.onSurfaceVariant, width: 140 }}
+        >
+          {statusLabel}
+        </span>
 
-          {/* 3D Viewer (center) */}
-          <div className="relative flex-1">
-            <R3FViewer onPartClick={handlePartClick} />
-            {glbUrl && <ExplodedViewControls />}
-          </div>
+        <span className="font-mono" style={{ fontSize: 12, color: KC.onSurfaceVariant, letterSpacing: '0.05em' }}>
+          {statusCenter}
+        </span>
 
-          {/* BOM Annotation Panel (right) */}
-          {selectedMeshName && manifest && (
-            <div
-              className="flex-shrink-0"
-              style={{
-                width: 320,
-                borderLeft: '1px solid rgba(65,72,90,0.2)',
-              }}
-            >
-              <BomAnnotationPanel />
-            </div>
-          )}
+        <div className="flex items-center gap-2" style={{ width: 140, justifyContent: 'flex-end' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00a3e4', flexShrink: 0, display: 'inline-block' }} />
+          <span className="font-mono" style={{ fontSize: 12, color: KC.onSurfaceVariant }}>Synced</span>
+          <span className="font-mono" style={{ fontSize: 11, color: 'rgba(154,154,170,0.55)' }}>live</span>
         </div>
-      )}
+      </footer>
+
     </div>
   );
 }
