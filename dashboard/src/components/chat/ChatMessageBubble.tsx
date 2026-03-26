@@ -42,7 +42,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
         nodes.push(
           <pre
             key={`code-${codeKey++}`}
-            className="my-1 overflow-x-auto rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-100"
+            className="my-1 overflow-x-auto rounded bg-zinc-100 px-3 py-2 text-xs text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
           >
             <code>{codeBlockLines.join('\n')}</code>
           </pre>,
@@ -74,7 +74,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
     nodes.push(
       <pre
         key={`code-${codeKey}`}
-        className="my-1 overflow-x-auto rounded bg-zinc-800 px-3 py-2 text-xs text-zinc-100"
+        className="my-1 overflow-x-auto rounded bg-zinc-100 px-3 py-2 text-xs text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
       >
         <code>{codeBlockLines.join('\n')}</code>
       </pre>,
