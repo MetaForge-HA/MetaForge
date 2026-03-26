@@ -24,13 +24,14 @@ describe('SessionsPage', () => {
   it('shows loading state', () => {
     mockUseSessions.mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<typeof useSessions>);
     render(<SessionsPage />);
-    expect(screen.getByText('Loading sessions...')).toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
   });
 
   it('shows empty state', () => {
     mockUseSessions.mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useSessions>);
     render(<SessionsPage />);
-    expect(screen.getByText('No sessions')).toBeInTheDocument();
+    // New orchestrator layout shows static DAG + log when no sessions
+    expect(screen.getByText('Orchestrator')).toBeInTheDocument();
   });
 
   it('renders session list', () => {

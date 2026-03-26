@@ -10,6 +10,21 @@ const glassCard = {
   background: 'rgba(30,31,38,0.85)',
 } as const;
 
+const glassPanel = {
+  background: 'rgba(30,31,38,0.85)',
+  backdropFilter: 'blur(16px)',
+  borderRadius: 4,
+  border: '1px solid rgba(65,72,90,0.2)',
+} as const;
+
+const panelHeader = {
+  height: 36,
+  borderBottom: '1px solid rgba(65,72,90,0.2)',
+  padding: '0 16px',
+  display: 'flex',
+  alignItems: 'center',
+} as const;
+
 const statusDotColor: Record<string, string> = {
   active: '#3dd68c',
   running: '#3dd68c',
@@ -47,6 +62,254 @@ function SkeletonCard() {
     </div>
   );
 }
+
+// ── Data Flows panel ──────────────────────────────────────────────────────────
+
+interface DataFlowRow {
+  dotColor: string;
+  name: string;
+  statusLabel: string;
+  statusColor: string;
+  time: string;
+  endpoint: string;
+}
+
+const DATA_FLOW_ROWS: DataFlowRow[] = [
+  { dotColor: '#3dd68c', name: 'File Save → Twin',  statusLabel: 'active',         statusColor: '#9a9aaa', time: '2s ago',  endpoint: '/twin/save' },
+  { dotColor: '#3dd68c', name: 'Graph Projection',  statusLabel: 'active',         statusColor: '#9a9aaa', time: '14s ago', endpoint: '/twin/project' },
+  { dotColor: '#86cfff', name: 'RAG Query',         statusLabel: 'active',         statusColor: '#9a9aaa', time: '1m ago',  endpoint: '/knowledge/query' },
+  { dotColor: '#f59e0b', name: 'BOM Risk Check',    statusLabel: 'degraded',       statusColor: '#f59e0b', time: '4m ago',  endpoint: '/bom/risk' },
+  { dotColor: '#9a9aaa', name: 'Drift Check',       statusLabel: 'running · 60s',  statusColor: '#9a9aaa', time: '58s ago', endpoint: '/drift/check' },
+];
+
+function DataFlowsPanel() {
+  return (
+    <div style={glassPanel}>
+      <div style={panelHeader}>
+        <span
+          className="font-mono"
+          style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a9aaa' }}
+        >
+          Data Flows
+        </span>
+      </div>
+      {DATA_FLOW_ROWS.map((row) => (
+        <DataFlowRowItem key={row.endpoint} row={row} />
+      ))}
+    </div>
+  );
+}
+
+function DataFlowRowItem({ row }: { row: DataFlowRow }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        height: 36,
+        padding: '0 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        background: hovered ? '#282a30' : 'transparent',
+        transition: 'background 0.15s',
+      }}
+    >
+      {/* Status dot */}
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: row.dotColor,
+          flexShrink: 0,
+          display: 'inline-block',
+        }}
+      />
+      {/* Name */}
+      <span style={{ flex: 1, fontSize: '12px', color: '#e2e2eb' }}>
+        {row.name}
+      </span>
+      {/* Status label */}
+      <span style={{ fontSize: '11px', color: row.statusColor }}>
+        {row.statusLabel}
+      </span>
+      {/* Time */}
+      <span
+        className="font-mono"
+        style={{ fontSize: '10px', color: '#9a9aaa', minWidth: 44, textAlign: 'right' }}
+      >
+        {row.time}
+      </span>
+      {/* Endpoint chip */}
+      <span
+        className="font-mono"
+        style={{
+          fontSize: '10px',
+          color: '#9a9aaa',
+          background: '#282a30',
+          padding: '1px 5px',
+          borderRadius: 2,
+        }}
+      >
+        {row.endpoint}
+      </span>
+    </div>
+  );
+}
+
+// ── Activity panel ────────────────────────────────────────────────────────────
+
+interface ActivityRow {
+  tag: string;
+  tagBg: string;
+  tagColor: string;
+  description: string;
+  time: string;
+}
+
+const ACTIVITY_ROWS: ActivityRow[] = [
+  { tag: 'twin.save',  tagBg: 'rgba(230,126,34,0.15)',   tagColor: '#ffb783', description: 'Node updated: MCU_STM32H7',       time: '09:41:18' },
+  { tag: 'agent.chat', tagBg: 'rgba(134,207,255,0.15)',  tagColor: '#86cfff', description: '42 chunks indexed',               time: '09:41:05' },
+  { tag: 'twin.drift', tagBg: 'rgba(245,158,11,0.15)',   tagColor: '#f59e0b', description: 'Drift detected: BOM line 14',     time: '09:40:51' },
+  { tag: 'bom.risk',   tagBg: 'rgba(255,180,171,0.15)',  tagColor: '#ffb4ab', description: 'Voltage check failed: rail 3V3',  time: '09:40:44' },
+  { tag: 'gate.check', tagBg: 'rgba(61,214,140,0.15)',   tagColor: '#3dd68c', description: 'Gate G3 passed: mechanical',      time: '09:40:31' },
+  { tag: 'agent.run',  tagBg: 'rgba(134,207,255,0.15)',  tagColor: '#86cfff', description: 'Datasheet: INA226 ingested',      time: '09:40:17' },
+];
+
+function ActivityPanel() {
+  return (
+    <div style={glassPanel}>
+      <div style={{ ...panelHeader, justifyContent: 'space-between' }}>
+        <span
+          className="font-mono"
+          style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9a9aaa' }}
+        >
+          Activity
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: '#3dd68c',
+              display: 'inline-block',
+            }}
+          />
+          <span
+            className="font-mono"
+            style={{ fontSize: '10px', color: '#3dd68c', letterSpacing: '0.07em' }}
+          >
+            LIVE
+          </span>
+        </div>
+      </div>
+      {ACTIVITY_ROWS.map((row) => (
+        <ActivityRowItem key={row.time + row.tag} row={row} />
+      ))}
+    </div>
+  );
+}
+
+function ActivityRowItem({ row }: { row: ActivityRow }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        height: 32,
+        padding: '0 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: hovered ? '#282a30' : 'transparent',
+        transition: 'background 0.15s',
+      }}
+    >
+      {/* Tag chip */}
+      <span
+        className="font-mono"
+        style={{
+          fontSize: '10px',
+          color: row.tagColor,
+          background: row.tagBg,
+          padding: '1px 5px',
+          borderRadius: 2,
+          flexShrink: 0,
+        }}
+      >
+        {row.tag}
+      </span>
+      {/* Description */}
+      <span style={{ fontSize: '12px', color: '#9a9aaa', flex: 1 }}>
+        {row.description}
+      </span>
+      {/* Time */}
+      <span className="font-mono" style={{ fontSize: '10px', color: '#9a9aaa' }}>
+        {row.time}
+      </span>
+    </div>
+  );
+}
+
+// ── System Health row ─────────────────────────────────────────────────────────
+
+interface HealthService {
+  name: string;
+  dotColor: string;
+  valueText: string;
+  valueColor: string;
+}
+
+const HEALTH_SERVICES: HealthService[] = [
+  { name: 'Neo4j',    dotColor: '#86cfff', valueText: '4ms',      valueColor: '#86cfff' },
+  { name: 'Kafka',    dotColor: '#3dd68c', valueText: '1ms',      valueColor: '#3dd68c' },
+  { name: 'pgvector', dotColor: '#3dd68c', valueText: '12ms',     valueColor: '#3dd68c' },
+  { name: 'Temporal', dotColor: '#86cfff', valueText: 'running',  valueColor: '#86cfff' },
+  { name: 'MinIO',    dotColor: '#f59e0b', valueText: 'degraded', valueColor: '#f59e0b' },
+];
+
+function SystemHealthRow() {
+  return (
+    <div className="grid grid-cols-5 gap-3 mb-4">
+      {HEALTH_SERVICES.map((svc) => (
+        <div
+          key={svc.name}
+          style={{
+            background: 'rgba(30,31,38,0.85)',
+            padding: '10px 12px',
+            borderRadius: 4,
+            border: '1px solid rgba(65,72,90,0.2)',
+          }}
+        >
+          <div style={{ fontSize: '12px', color: '#9a9aaa', marginBottom: 4 }}>
+            {svc.name}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: svc.dotColor,
+                display: 'inline-block',
+                flexShrink: 0,
+              }}
+            />
+            <span className="font-mono" style={{ fontSize: '11px', color: svc.valueColor }}>
+              {svc.valueText}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Page component ────────────────────────────────────────────────────────────
 
 export function ProjectsPage() {
   const { data: projects, isLoading } = useProjects();
@@ -133,6 +396,22 @@ export function ProjectsPage() {
           </div>
         </div>
       </div>
+
+      {/* Data Flows + Activity two-column row */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 320px',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <DataFlowsPanel />
+        <ActivityPanel />
+      </div>
+
+      {/* System Health row */}
+      <SystemHealthRow />
 
       {/* Toolbar: search + new project */}
       <div className="flex items-center justify-between mb-3">
