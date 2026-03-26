@@ -1,210 +1,90 @@
-import { useState, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import {
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Circle,
-  ChevronDown,
-  ChevronRight,
-  Cpu,
-  Zap,
-  Code2,
-  Activity,
-} from 'lucide-react';
-import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
-import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
-import { SkeletonList } from '../components/ui/Skeleton';
 import { formatRelativeTime } from '../utils/format-time';
 import { useSession } from '../hooks/use-sessions';
 import { useScopedChat } from '../hooks/use-scoped-chat';
 import { SessionChatPanel } from '../components/chat/integrations/SessionChatPanel';
-import type { AgentEvent } from '../types/session';
+import type { AgentEvent, AgentSession } from '../types/session';
 
-// ── Agent type icon map ───────────────────────────────────────────────────────
+// KC color tokens
+const KC = {
+  surfaceContainer: 'rgba(30,31,38,0.85)',
+  surfaceHigh: '#282a30',
+  surfaceLowest: '#0a0b10',
+  surfaceBorder: 'rgba(65,72,90,0.2)',
+  surfaceBorderFaint: 'rgba(65,72,90,0.08)',
+  onSurface: '#e2e2eb',
+  onSurfaceVariant: '#9a9aaa',
+  primary: '#ffb783',
+  running: '#e67e22',
+  done: '#3dd68c',
+  pending: '#9a9aaa',
+  error: '#ffb4ab',
+  info: '#86cfff',
+  warning: '#f59e0b',
+} as const;
 
-const AGENT_ICONS: Record<string, React.ReactNode> = {
-  MECH: <Cpu size={14} />,
-  ELEC: <Zap size={14} />,
-  FW:   <Code2 size={14} />,
-  SIM:  <Activity size={14} />,
+function statusDotColor(status: AgentSession['status']): string {
+  switch (status) {
+    case 'running': return KC.running;
+    case 'completed': return KC.done;
+    case 'failed': return KC.error;
+    case 'pending': return KC.pending;
+    default: return KC.pending;
+  }
+}
+
+const EVENT_ICON: Record<AgentEvent['type'], string> = {
+  task_started: 'play_circle',
+  task_completed: 'check_circle',
+  task_failed: 'error',
+  proposal_created: 'add_circle',
 };
 
-function AgentIcon({ agentCode }: { agentCode: string }) {
+const EVENT_COLOR: Record<AgentEvent['type'], string> = {
+  task_started: KC.info,
+  task_completed: KC.done,
+  task_failed: KC.error,
+  proposal_created: KC.warning,
+};
+
+function GlassPanel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <span className="text-zinc-500 dark:text-zinc-400">
-      {AGENT_ICONS[agentCode] ?? <Activity size={14} />}
-    </span>
-  );
-}
-
-// ── Stage status circle on the timeline rail ──────────────────────────────────
-
-function StageCircle({ type }: { type: AgentEvent['type'] }) {
-  switch (type) {
-    case 'task_completed':
-      return (
-        <CheckCircle2
-          size={20}
-          className="text-green-500"
-          aria-label="completed"
-        />
-      );
-    case 'task_failed':
-      return (
-        <XCircle size={20} className="text-red-500" aria-label="failed" />
-      );
-    case 'task_started':
-      return (
-        <Clock size={20} className="text-yellow-500" aria-label="running" />
-      );
-    default:
-      return (
-        <Circle size={20} className="text-zinc-400" aria-label="pending" />
-      );
-  }
-}
-
-// ── Duration helpers ──────────────────────────────────────────────────────────
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}m ${seconds}s`;
-}
-
-function sessionDuration(startedAt: string, completedAt?: string): string {
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const ms = end - start;
-  if (Number.isNaN(ms) || ms < 0) return '';
-  return formatDurationMs(ms);
-}
-
-function eventDuration(events: AgentEvent[], idx: number): string {
-  const current = events[idx];
-  const next = events[idx + 1];
-  if (!current || !next) return '';
-  const start = new Date(current.timestamp).getTime();
-  const end = new Date(next.timestamp).getTime();
-  const ms = end - start;
-  if (Number.isNaN(ms) || ms <= 0) return '';
-  return formatDurationMs(ms);
-}
-
-// ── Log line component ────────────────────────────────────────────────────────
-
-function LogLine({ line }: { line: string }) {
-  const lower = line.toLowerCase();
-  if (lower.includes('error')) {
-    return (
-      <div className="border-l-2 border-red-500 pl-2 text-red-700 dark:text-red-400">
-        {line}
-      </div>
-    );
-  }
-  if (lower.includes('warn')) {
-    return (
-      <div className="border-l-2 border-yellow-500 pl-2 text-yellow-700 dark:text-yellow-400">
-        {line}
-      </div>
-    );
-  }
-  return <div className="pl-2">{line}</div>;
-}
-
-// ── Stage node ────────────────────────────────────────────────────────────────
-
-interface StageNodeProps {
-  event: AgentEvent;
-  duration: string;
-  isLast: boolean;
-  defaultExpanded: boolean;
-  globalSearch: string;
-}
-
-function StageNode({ event, duration, isLast, defaultExpanded, globalSearch }: StageNodeProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-
-  // Split message into individual log lines for filtering
-  const allLines = useMemo(() => event.message.split('\n').filter(Boolean), [event.message]);
-
-  const visibleLines = useMemo(() => {
-    if (!globalSearch.trim()) return allLines;
-    const lower = globalSearch.toLowerCase();
-    return allLines.filter((l) => l.toLowerCase().includes(lower));
-  }, [allLines, globalSearch]);
-
-  return (
-    <div className="relative flex gap-4">
-      {/* Timeline rail */}
-      <div className="flex flex-col items-center">
-        <StageCircle type={event.type} />
-        {!isLast && (
-          <div className="mt-1 w-0.5 flex-1 bg-zinc-200 dark:bg-zinc-700" />
-        )}
-      </div>
-
-      {/* Stage content */}
-      <div className="mb-6 min-w-0 flex-1 last:mb-0">
-        {/* Header — clickable to expand/collapse */}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 text-left"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          data-testid={`stage-header-${event.id}`}
-        >
-          {expanded ? (
-            <ChevronDown size={14} className="shrink-0 text-zinc-400" />
-          ) : (
-            <ChevronRight size={14} className="shrink-0 text-zinc-400" />
-          )}
-          <AgentIcon agentCode={event.agentCode} />
-          <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {event.message.split('\n')[0]}
-          </span>
-          <StatusBadge status={event.type.replace('task_', '')} className="shrink-0" />
-          {duration && (
-            <Badge variant="default" className="shrink-0 font-mono text-xs">
-              {duration}
-            </Badge>
-          )}
-        </button>
-
-        {/* Expanded log area */}
-        {expanded && (
-          <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-            {visibleLines.length === 0 ? (
-              <div className="text-zinc-400">
-                {globalSearch ? 'No lines match search.' : 'No log lines.'}
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {visibleLines.map((line, i) => (
-                  <LogLine key={i} line={line} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+    <div
+      className="rounded overflow-hidden"
+      style={{
+        background: KC.surfaceContainer,
+        border: `1px solid ${KC.surfaceBorder}`,
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        ...style,
+      }}
+    >
+      {children}
     </div>
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+function PanelHeader({ label }: { label: string }) {
+  return (
+    <div
+      className="flex items-center px-4"
+      style={{ height: 36, borderBottom: `1px solid ${KC.surfaceBorder}` }}
+    >
+      <span
+        className="font-mono uppercase"
+        style={{ fontSize: 10, letterSpacing: '0.1em', color: KC.onSurfaceVariant }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: session, isLoading, isError, refetch } = useSession(id);
-  const [logSearch, setLogSearch] = useState('');
+  const { data: session, isLoading } = useSession(id);
 
   const chat = useScopedChat({
     scopeKind: 'session',
@@ -213,38 +93,8 @@ export function SessionDetailPage() {
 
   if (isLoading) {
     return (
-      <div data-testid="loading-skeleton">
-        <div className="mb-6">
-          <div className="mb-1 h-4 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-          <div className="mb-4 h-7 w-64 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-        </div>
-        <SkeletonList rows={4} />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div>
-        <div className="mb-1">
-          <Link
-            to="/sessions"
-            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-          >
-            &larr; Sessions
-          </Link>
-        </div>
-        <Card className="mt-4 flex flex-col items-center py-12 text-center">
-          <p className="text-base font-medium text-red-600 dark:text-red-400">
-            Failed to load session
-          </p>
-          <p className="mt-1 text-sm text-zinc-500">
-            There was a problem fetching session details.
-          </p>
-          <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
-            Retry
-          </Button>
-        </Card>
+      <div className="text-sm font-mono" style={{ color: KC.onSurfaceVariant }}>
+        Loading session...
       </div>
     );
   }
@@ -258,99 +108,131 @@ export function SessionDetailPage() {
     );
   }
 
-  const totalDuration = sessionDuration(session.startedAt, session.completedAt);
-
   return (
     <div>
-      <div className="mb-1">
+      {/* Back link */}
+      <div style={{ marginBottom: 12 }}>
         <Link
           to="/sessions"
-          className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+          className="font-mono"
+          style={{ fontSize: 12, color: KC.onSurfaceVariant, textDecoration: 'none' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = KC.onSurface; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = KC.onSurfaceVariant; }}
         >
-          &larr; Sessions
+          <span style={{ marginRight: 4 }}>←</span>Sessions
         </Link>
       </div>
 
-      {/* Session header */}
-      <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-xs font-bold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
-          {session.agentCode}
-        </div>
+      {/* Page header */}
+      <div className="flex items-start justify-between" style={{ marginBottom: 16 }}>
         <div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: KC.onSurface, lineHeight: 1.2 }}>
             {session.taskType.replace(/_/g, ' ')}
-          </h2>
-          <span className="text-xs text-zinc-400">
-            Started {formatRelativeTime(session.startedAt)}
+          </h1>
+          <span
+            className="font-mono"
+            style={{ fontSize: 12, color: KC.onSurfaceVariant }}
+          >
+            {session.agentCode} · started {formatRelativeTime(session.startedAt)}
           </span>
         </div>
-        <StatusBadge status={session.status} />
-        {totalDuration && (
-          <Badge variant="default" className="font-mono text-xs" data-testid="total-duration">
-            {totalDuration}
-          </Badge>
-        )}
-      </div>
-
-      {/* Meta cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Card>
-          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {session.id}
-          </div>
-          <div className="text-xs text-zinc-500">Session ID</div>
-        </Card>
-        <Card>
-          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {session.runId ?? '\u2014'}
-          </div>
-          <div className="text-xs text-zinc-500">Run ID</div>
-        </Card>
-        <Card>
-          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {session.completedAt ? formatRelativeTime(session.completedAt) : '\u2014'}
-          </div>
-          <div className="text-xs text-zinc-500">Completed</div>
-        </Card>
-      </div>
-
-      {/* Timeline section */}
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Timeline
-        </h3>
-
-        {session.events.length > 0 && (
-          <input
-            type="search"
-            placeholder="Search logs..."
-            value={logSearch}
-            onChange={(e) => setLogSearch(e.target.value)}
-            data-testid="log-search"
-            className="w-48 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500"
+        <div className="flex items-center gap-2">
+          <span
+            style={{
+              display: 'inline-block',
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: statusDotColor(session.status),
+            }}
           />
-        )}
+          <span
+            className="font-mono"
+            style={{ fontSize: 11, color: statusDotColor(session.status) }}
+          >
+            {session.status}
+          </span>
+          <StatusBadge status={session.status} className="ml-1" />
+        </div>
       </div>
 
-      {session.events.length === 0 ? (
-        <EmptyState title="No events" description="No events have been recorded yet." />
-      ) : (
-        <div className="space-y-0">
-          {session.events.map((event, idx) => (
-            <StageNode
-              key={event.id}
-              event={event}
-              duration={eventDuration(session.events, idx)}
-              isLast={idx === session.events.length - 1}
-              defaultExpanded={idx === 0}
-              globalSearch={logSearch}
-            />
-          ))}
-        </div>
-      )}
+      {/* Meta row */}
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {[
+          { label: 'SESSION ID', value: session.id },
+          { label: 'RUN ID', value: session.runId ?? '—' },
+          { label: 'COMPLETED', value: session.completedAt ? formatRelativeTime(session.completedAt) : '—' },
+        ].map(({ label, value }) => (
+          <GlassPanel key={label}>
+            <div style={{ padding: '10px 14px' }}>
+              <div
+                className="font-mono truncate"
+                style={{ fontSize: 12, color: KC.onSurface, marginBottom: 2 }}
+              >
+                {value}
+              </div>
+              <div
+                className="font-mono uppercase"
+                style={{ fontSize: 10, color: KC.onSurfaceVariant, letterSpacing: '0.06em' }}
+              >
+                {label}
+              </div>
+            </div>
+          </GlassPanel>
+        ))}
+      </div>
+
+      {/* Timeline */}
+      <GlassPanel style={{ marginBottom: 16 }}>
+        <PanelHeader label="TIMELINE" />
+
+        {session.events.length === 0 ? (
+          <div style={{ padding: '24px 16px' }}>
+            <EmptyState title="No events" description="No events have been recorded yet." />
+          </div>
+        ) : (
+          <div style={{ padding: '8px 0' }}>
+            {session.events.map((event, idx) => (
+              <div
+                key={event.id}
+                className="flex items-start gap-3 px-4"
+                style={{
+                  paddingTop: 8,
+                  paddingBottom: 8,
+                  borderBottom:
+                    idx < session.events.length - 1
+                      ? `1px solid ${KC.surfaceBorderFaint}`
+                      : 'none',
+                }}
+              >
+                {/* Icon */}
+                <span
+                  className="material-symbols-outlined shrink-0"
+                  style={{ fontSize: 15, color: EVENT_COLOR[event.type], lineHeight: 1.4 }}
+                >
+                  {EVENT_ICON[event.type]}
+                </span>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div style={{ fontSize: 13, color: KC.onSurface }}>
+                    {event.message}
+                  </div>
+                  <div
+                    className="font-mono"
+                    style={{ fontSize: 11, color: KC.onSurfaceVariant, marginTop: 2 }}
+                  >
+                    {formatRelativeTime(event.timestamp)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </GlassPanel>
 
       {/* Session Chat Panel */}
-      <div className="mt-6">
+      <div style={{ marginTop: 16 }}>
         <SessionChatPanel
           sessionId={session.id}
           sessionTitle={session.taskType.replace(/_/g, ' ')}
