@@ -1,13 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, Box, GitBranch, ChevronDown, Eye, Loader2, FileInput, X } from 'lucide-react';
-import { Card } from '../components/ui/Card';
+import { ChevronDown, Eye } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EmptyState } from '../components/ui/EmptyState';
-import { SkeletonCard } from '../components/ui/Skeleton';
 import { formatRelativeTime } from '../utils/format-time';
 import { useTwinNodes, useTwinNode } from '../hooks/use-twin';
-import { useAllLinks } from '../hooks/use-links';
 import { useScopedChat } from '../hooks/use-scoped-chat';
 import { NodeChatPanel } from '../components/chat/integrations/NodeChatPanel';
 import { R3FViewer } from '../components/viewer/R3FViewer';
@@ -18,38 +15,49 @@ import { useViewerStore } from '../store/viewer-store';
 import { useUploadAndConvert } from '../hooks/use-conversion';
 import { getMockManifest, getMockGlbUrl } from '../api/endpoints/convert';
 import { getNodeModel } from '../api/endpoints/twin';
-import type { TwinNode, FileLinkStatus } from '../types/twin';
+import type { TwinNode } from '../types/twin';
 import type { ModelManifest, PartInfo, PartTreeNode } from '../types/viewer';
-import { ImportZone } from '../components/ImportZone';
-import { LinkPanel } from '../components/LinkPanel';
 
-function LinkStatusDot({ status }: { status: FileLinkStatus }) {
-  const colors: Record<FileLinkStatus, string> = {
-    synced: 'bg-green-500',
-    changed: 'bg-yellow-500',
-    disconnected: 'bg-red-500',
-  };
-  const titles: Record<FileLinkStatus, string> = {
-    synced: 'File linked — synced',
-    changed: 'File linked — changes detected',
-    disconnected: 'File linked — file missing',
-  };
+// ── Node type → Material Symbol icon name ──────────────────────────────────
+const TYPE_ICONS: Record<TwinNode['type'], string> = {
+  work_product: 'description',
+  constraint: 'lock',
+  relationship: 'link',
+  version: 'label',
+};
+
+// ── Node type label ─────────────────────────────────────────────────────────
+const TYPE_LABELS: Record<TwinNode['type'], string> = {
+  work_product: 'WP',
+  constraint: 'CON',
+  relationship: 'REL',
+  version: 'VER',
+};
+
+// ── Status dot color (6 px circle) ─────────────────────────────────────────
+function StatusDot({ status }: { status: string }) {
+  const color =
+    status === 'running'
+      ? '#f59e0b'
+      : status === 'active' || status === 'completed' || status === 'valid' || status === 'ready'
+      ? '#3dd68c'
+      : '#6b7280';
   return (
     <span
-      className={`inline-block h-2 w-2 flex-shrink-0 rounded-full ${colors[status]}`}
-      title={titles[status]}
-      aria-label={titles[status]}
+      aria-hidden="true"
+      style={{
+        display: 'inline-block',
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        background: color,
+        flexShrink: 0,
+      }}
     />
   );
 }
 
-const TYPE_ICONS: Record<TwinNode['type'], string> = {
-  work_product: '\uD83D\uDCC4',
-  constraint: '\uD83D\uDD12',
-  relationship: '\uD83D\uDD17',
-  version: '\uD83C\uDFF7\uFE0F',
-};
-
+// ── NodeDetail ──────────────────────────────────────────────────────────────
 function NodeDetail({ node }: { node: TwinNode }) {
   const chat = useScopedChat({
     scopeKind: 'digital-twin-node',
@@ -77,7 +85,6 @@ function NodeDetail({ node }: { node: TwinNode }) {
         materials: result.metadata.materials ?? [],
         stats: result.metadata.stats ?? { triangleCount: 0, fileSize: 0 },
       };
-      // Prepend /api so the URL goes through the Vite dev proxy
       const glbUrl = result.glb_url.startsWith('/v1/')
         ? `/api${result.glb_url}`
         : result.glb_url;
@@ -91,98 +98,105 @@ function NodeDetail({ node }: { node: TwinNode }) {
   }, [node.id, loadModel, setViewMode]);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{TYPE_ICONS[node.type]}</span>
-          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* Node header */}
+      <div
+        className="px-4 py-3 flex-shrink-0"
+        style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span className="material-symbols-outlined" style={{ color: '#9a9aaa', fontSize: 16 }}>
+            {TYPE_ICONS[node.type]}
+          </span>
+          <span className="font-mono text-xs font-medium" style={{ color: '#e2e2eb' }}>
             {node.name}
-          </h3>
-          <StatusBadge status={node.status} />
+          </span>
+          <StatusDot status={node.status} />
         </div>
-        <div className="mt-1 text-xs text-zinc-400">
-          {node.domain} &middot; {node.type} &middot; Updated {formatRelativeTime(node.updatedAt)}
+        <div className="text-xs font-mono" style={{ color: '#9a9aaa' }}>
+          {node.domain} &middot; {node.type} &middot; {formatRelativeTime(node.updatedAt)}
+        </div>
+        <div className="mt-2">
+          <StatusBadge status={node.status} />
         </div>
       </div>
 
+      {/* View 3D button */}
       {isCAD && (
-        <Button
-          variant="primary"
-          onClick={handleView3D}
-          disabled={loading3d}
-        >
-          <Eye size={14} className="mr-1.5" />
-          {loading3d ? 'Converting...' : 'View 3D Model'}
-        </Button>
+        <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleView3D}
+            disabled={loading3d}
+            className="text-xs"
+          >
+            <Eye size={13} className="mr-1.5" />
+            {loading3d ? 'Converting...' : 'View 3D Model'}
+          </Button>
+        </div>
       )}
 
-      <Card>
-        <h4 className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      {/* Properties table */}
+      <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}>
+        <div
+          className="font-mono text-xs mb-2 uppercase tracking-widest"
+          style={{ color: '#9a9aaa', fontSize: 10, letterSpacing: '0.1em' }}
+        >
           Properties
-        </h4>
-        <dl className="grid grid-cols-2 gap-2">
-          {Object.entries(node.properties).map(([key, value]) => (
-            <div key={key}>
-              <dt className="text-xs text-zinc-500">{key}</dt>
-              <dd className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                {String(value)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
+        </div>
+        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+          <tbody>
+            {Object.entries(node.properties).map(([key, value]) => (
+              <tr key={key} style={{ borderBottom: '1px solid rgba(65,72,90,0.1)' }}>
+                <td
+                  className="py-1 pr-3 font-mono text-xs align-top"
+                  style={{ color: '#9a9aaa', width: '40%' }}
+                >
+                  {key}
+                </td>
+                <td
+                  className="py-1 font-mono text-xs align-top"
+                  style={{ color: '#e2e2eb' }}
+                >
+                  {String(value)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <NodeChatPanel
-        nodeId={node.id}
-        nodeName={node.name}
-        thread={chat.thread}
-        messages={chat.messages}
-        isTyping={chat.isTyping}
-        onSendMessage={chat.sendMessage}
-        onCreateThread={chat.createThread}
-      />
-
-      <LinkPanel nodeId={node.id} />
+      {/* Chat panel */}
+      <div className="px-4 py-3 flex-1 min-h-0">
+        <NodeChatPanel
+          nodeId={node.id}
+          nodeName={node.name}
+          thread={chat.thread}
+          messages={chat.messages}
+          isTyping={chat.isTyping}
+          onSendMessage={chat.sendMessage}
+          onCreateThread={chat.createThread}
+        />
+      </div>
     </div>
   );
 }
 
+// ── GraphView (two-panel: node list + node detail) ──────────────────────────
 function GraphView() {
-  const { data: nodes, isLoading, isError, refetch } = useTwinNodes();
-  const { data: allLinks } = useAllLinks();
+  const { data: nodes, isLoading } = useTwinNodes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: selectedNode } = useTwinNode(selectedId ?? undefined);
 
-  const linkStatusMap = new Map<string, FileLinkStatus>(
-    (allLinks ?? []).map((l) => [l.node_id, l.status]),
-  );
-
   if (isLoading) {
     return (
-      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-        <SkeletonCard />
+      <div
+        className="flex-1 flex items-center justify-center font-mono text-xs"
+        style={{ color: '#9a9aaa' }}
+      >
+        Loading twin graph...
       </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Card className="flex flex-col items-center py-12 text-center">
-        <p className="text-base font-medium text-red-600 dark:text-red-400">
-          Failed to load twin graph
-        </p>
-        <p className="mt-1 text-sm text-zinc-500">
-          There was a problem fetching Digital Twin nodes.
-        </p>
-        <Button variant="secondary" className="mt-4" onClick={() => void refetch()}>
-          Retry
-        </Button>
-      </Card>
     );
   }
 
@@ -198,110 +212,148 @@ function GraphView() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-      <Card className="max-h-[calc(100vh-12rem)] overflow-y-auto p-0">
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+    <div className="flex h-full">
+      {/* Left panel — node list */}
+      <div
+        className="glass flex flex-col overflow-hidden flex-shrink-0"
+        style={{
+          width: 260,
+          background: 'rgba(30,31,38,0.85)',
+          border: '1px solid rgba(65,72,90,0.2)',
+          borderRadius: 8,
+          margin: '12px 0 12px 12px',
+        }}
+      >
+        {/* Panel header */}
+        <div
+          className="px-3 py-2 flex-shrink-0 flex items-center gap-2"
+          style={{ borderBottom: '1px solid rgba(65,72,90,0.2)' }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#9a9aaa' }}>
+            hub
+          </span>
+          <span
+            className="font-mono uppercase tracking-widest"
+            style={{ fontSize: 10, color: '#9a9aaa', letterSpacing: '0.1em' }}
+          >
+            Nodes
+          </span>
+          <span
+            className="ml-auto font-mono rounded px-1.5"
+            style={{
+              fontSize: 10,
+              background: 'rgba(40,42,48,1)',
+              color: '#9a9aaa',
+            }}
+          >
+            {items.length}
+          </span>
+        </div>
+
+        {/* Node list */}
+        <ul className="flex-1 overflow-y-auto" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {items.map((node) => {
-            const linkStatus = linkStatusMap.get(node.id);
+            const isActive = selectedId === node.id;
             return (
               <li key={node.id}>
                 <button
                   type="button"
                   onClick={() => setSelectedId(node.id)}
-                  className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800 ${
-                    selectedId === node.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                  }`}
+                  className="flex w-full items-center gap-2 text-left transition-colors"
+                  style={{
+                    height: 36,
+                    padding: '0 12px',
+                    background: isActive ? 'rgba(40,42,48,1)' : 'transparent',
+                    borderLeft: isActive ? '2px solid #e67e22' : '2px solid transparent',
+                    cursor: 'pointer',
+                    border: 'none',
+                    outline: 'none',
+                    width: '100%',
+                    borderLeftWidth: 2,
+                    borderLeftStyle: 'solid',
+                    borderLeftColor: isActive ? '#e67e22' : 'transparent',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'rgba(40,42,48,0.6)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }
+                  }}
                 >
-                  <span>{TYPE_ICONS[node.type]}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate">
-                      <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                        {node.name}
-                      </span>
-                      {linkStatus && <LinkStatusDot status={linkStatus} />}
-                    </div>
-                    <div className="text-xs text-zinc-400">
-                      {node.domain} &middot; {node.type}
-                    </div>
-                  </div>
-                  <StatusBadge status={node.status} />
+                  <StatusDot status={node.status} />
+                  <span
+                    className="material-symbols-outlined flex-shrink-0"
+                    style={{
+                      fontSize: 14,
+                      color: isActive ? '#e67e22' : '#9a9aaa',
+                    }}
+                  >
+                    {TYPE_ICONS[node.type]}
+                  </span>
+                  <span
+                    className="flex-1 truncate font-mono text-xs"
+                    style={{ color: isActive ? '#e2e2eb' : '#9a9aaa' }}
+                  >
+                    {node.name}
+                  </span>
+                  <span
+                    className="font-mono rounded flex-shrink-0"
+                    style={{
+                      fontSize: 10,
+                      background: 'rgba(40,42,48,1)',
+                      color: '#9a9aaa',
+                      padding: '0 6px',
+                    }}
+                  >
+                    {TYPE_LABELS[node.type]}
+                  </span>
                 </button>
               </li>
             );
           })}
         </ul>
-      </Card>
+      </div>
 
-      <div>
+      {/* Right panel — node detail */}
+      <div
+        className="glass flex flex-col overflow-hidden flex-1"
+        style={{
+          background: 'rgba(30,31,38,0.85)',
+          border: '1px solid rgba(65,72,90,0.2)',
+          borderRadius: 8,
+          margin: '12px 12px 12px 8px',
+        }}
+      >
         {selectedNode ? (
           <NodeDetail node={selectedNode} />
         ) : (
-          <Card className="flex min-h-[200px] items-center justify-center">
-            <p className="text-sm text-zinc-400">Select a node to view details</p>
-          </Card>
+          <div
+            className="flex flex-1 items-center justify-center font-mono text-xs"
+            style={{ color: '#9a9aaa' }}
+          >
+            Select a node to view details
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+// ── ConversionPhase ─────────────────────────────────────────────────────────
 type ConversionPhase = 'idle' | 'uploading' | 'converting' | 'loading';
 
-const PHASE_LABELS: Record<ConversionPhase, string> = {
-  idle: 'Upload STEP',
-  uploading: 'Uploading...',
-  converting: 'Converting...',
-  loading: 'Loading model...',
-};
-
-function ConversionProgressIndicator({ phase }: { phase: ConversionPhase }) {
-  const steps: { key: ConversionPhase; label: string }[] = [
-    { key: 'uploading', label: 'Upload' },
-    { key: 'converting', label: 'Convert' },
-    { key: 'loading', label: 'Load' },
-  ];
-  const activeIdx = steps.findIndex((s) => s.key === phase);
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {steps.map((step, idx) => {
-        const isActive = idx === activeIdx;
-        const isDone = idx < activeIdx;
-        return (
-          <div key={step.key} className="flex items-center gap-1.5">
-            <div className="flex items-center gap-1">
-              <div
-                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                  isActive
-                    ? 'bg-blue-500'
-                    : isDone
-                    ? 'bg-green-500'
-                    : 'bg-zinc-300 dark:bg-zinc-600'
-                }`}
-              />
-              <span
-                className={`text-xs ${
-                  isActive
-                    ? 'font-medium text-blue-600 dark:text-blue-400'
-                    : isDone
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-zinc-400'
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {idx < steps.length - 1 && (
-              <div className="h-px w-3 bg-zinc-200 dark:bg-zinc-600" />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => void; importOpen: boolean }) {
+// ── ViewerToolbar ───────────────────────────────────────────────────────────
+function ViewerToolbar({
+  onToggleImport,
+  importOpen,
+}: {
+  onToggleImport: () => void;
+  importOpen: boolean;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadMutation = useUploadAndConvert();
   const viewMode = useViewerStore((s) => s.viewMode);
@@ -311,10 +363,8 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
   const [quality, setQuality] = useState('standard');
   const [conversionPhase, setConversionPhase] = useState<ConversionPhase>('idle');
 
-  // Advance through phases as the mutation progresses
   useEffect(() => {
     if (!uploadMutation.isPending) {
-      // Brief "loading" phase after success before resetting
       if (uploadMutation.isSuccess && conversionPhase === 'converting') {
         setConversionPhase('loading');
         const t = setTimeout(() => setConversionPhase('idle'), 800);
@@ -331,13 +381,10 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
       const file = e.target.files?.[0];
       if (file) {
         setConversionPhase('uploading');
-        // Simulate phase progression: uploading → converting mid-flight
         const t = setTimeout(() => setConversionPhase('converting'), 1200);
         uploadMutation.mutate(
           { file, quality },
-          {
-            onSettled: () => clearTimeout(t),
-          },
+          { onSettled: () => clearTimeout(t) },
         );
       }
     },
@@ -348,46 +395,66 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
     loadModel(getMockGlbUrl(), getMockManifest());
   }, [loadModel]);
 
+  const toolbarBtn =
+    'bg-surface-high text-on-surface-variant hover:text-on-surface text-xs rounded px-2 py-1 transition-colors border-0 cursor-pointer';
+
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       {/* Import toggle */}
       <button
         type="button"
         onClick={onToggleImport}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+        className={toolbarBtn}
+        style={
           importOpen
-            ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-            : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
-        }`}
+            ? { background: 'rgba(230,126,34,0.15)', color: '#e67e22' }
+            : undefined
+        }
       >
-        <FileInput size={14} />
+        <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>
+          file_upload
+        </span>
         Import
       </button>
 
       {/* View mode toggle */}
-      <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700">
+      <div
+        className="flex items-center overflow-hidden rounded"
+        style={{ border: '1px solid rgba(65,72,90,0.3)' }}
+      >
         <button
           type="button"
           onClick={() => setViewMode('3d')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-            viewMode === '3d'
-              ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800'
-          }`}
+          className="text-xs px-2 py-1 transition-colors border-0 cursor-pointer"
+          style={{
+            background: viewMode === '3d' ? 'rgba(230,126,34,0.15)' : 'rgba(40,42,48,0.9)',
+            color: viewMode === '3d' ? '#e67e22' : '#9a9aaa',
+            fontFamily: "'Roboto Mono', monospace",
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
         >
-          <Box size={14} />
-          3D Model
+          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
+            view_in_ar
+          </span>
+          3D
         </button>
+        <div style={{ width: 1, height: 16, background: 'rgba(65,72,90,0.4)' }} />
         <button
           type="button"
           onClick={() => setViewMode('graph')}
-          className={`flex items-center gap-1.5 border-l border-zinc-200 px-3 py-1.5 text-xs font-medium transition-colors dark:border-zinc-700 ${
-            viewMode === 'graph'
-              ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-              : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800'
-          }`}
+          className="text-xs px-2 py-1 transition-colors border-0 cursor-pointer"
+          style={{
+            background: viewMode === 'graph' ? 'rgba(230,126,34,0.15)' : 'rgba(40,42,48,0.9)',
+            color: viewMode === 'graph' ? '#e67e22' : '#9a9aaa',
+            fontFamily: "'Roboto Mono', monospace",
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
         >
-          <GitBranch size={14} />
+          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
+            hub
+          </span>
           Graph
         </button>
       </div>
@@ -399,30 +466,54 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
             <select
               value={quality}
               onChange={(e) => setQuality(e.target.value)}
-              className="appearance-none rounded-lg border border-zinc-200 bg-white px-3 py-1.5 pr-7 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              className="appearance-none rounded text-xs px-2 py-1 pr-6 font-mono cursor-pointer"
+              style={{
+                background: 'rgba(40,42,48,0.9)',
+                border: '1px solid rgba(65,72,90,0.3)',
+                color: '#9a9aaa',
+              }}
             >
               <option value="preview">Preview</option>
               <option value="standard">Standard</option>
               <option value="fine">Fine</option>
             </select>
-            <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400" />
+            <ChevronDown
+              size={11}
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2"
+              style={{ color: '#9a9aaa' }}
+            />
           </div>
 
-          {/* Upload button / progress indicator */}
+          {/* Upload button / progress */}
           {conversionPhase !== 'idle' ? (
-            <div className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 dark:border-zinc-700">
-              <Loader2 size={13} className="animate-spin text-blue-500" />
-              <ConversionProgressIndicator phase={conversionPhase} />
+            <div
+              className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono"
+              style={{
+                background: 'rgba(40,42,48,0.9)',
+                border: '1px solid rgba(65,72,90,0.3)',
+                color: '#9a9aaa',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#e67e22' }}>
+                sync
+              </span>
+              {conversionPhase === 'uploading'
+                ? 'Uploading...'
+                : conversionPhase === 'converting'
+                ? 'Converting...'
+                : 'Loading...'}
             </div>
           ) : (
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadMutation.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className={toolbarBtn}
             >
-              <Upload size={14} />
-              {PHASE_LABELS.idle}
+              <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 3 }}>
+                upload_file
+              </span>
+              Upload STEP
             </button>
           )}
           <input
@@ -433,14 +524,19 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
             onChange={handleUpload}
           />
 
-          {/* Load mock button (dev only) */}
+          {/* Load demo */}
           {!glbUrl && (
             <button
               type="button"
               onClick={handleLoadMock}
-              className="rounded-lg border border-dashed border-zinc-300 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-500 dark:border-zinc-600 dark:hover:border-zinc-500"
+              className="text-xs rounded px-2 py-1 cursor-pointer transition-colors border-0"
+              style={{
+                background: 'transparent',
+                border: '1px dashed rgba(65,72,90,0.4)',
+                color: '#9a9aaa',
+              }}
             >
-              Load Demo Model
+              Demo
             </button>
           )}
         </>
@@ -449,6 +545,7 @@ function ViewerToolbar({ onToggleImport, importOpen }: { onToggleImport: () => v
   );
 }
 
+// ── TwinViewerPage ──────────────────────────────────────────────────────────
 export function TwinViewerPage() {
   const viewMode = useViewerStore((s) => s.viewMode);
   const manifest = useViewerStore((s) => s.manifest);
@@ -468,51 +565,130 @@ export function TwinViewerPage() {
   const items = nodes ?? [];
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-        <div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-            Digital Twin Viewer
-          </h2>
-          <p className="text-sm text-zinc-500">{items.length} nodes in the design graph</p>
+    <div
+      className="flex flex-col"
+      style={{
+        height: 'calc(100vh - 4rem)',
+        background: '#111319',
+      }}
+    >
+      {/* ── Header ── */}
+      <div
+        className="flex items-center justify-between px-4 flex-shrink-0"
+        style={{
+          height: 52,
+          borderBottom: '1px solid rgba(65,72,90,0.2)',
+          background: 'rgba(25,27,34,0.95)',
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <span className="material-symbols-outlined" style={{ color: '#e67e22', fontSize: 18 }}>
+            hub
+          </span>
+          <div>
+            <span
+              className="font-mono text-xs uppercase tracking-widest"
+              style={{ color: '#e2e2eb', letterSpacing: '0.1em' }}
+            >
+              Digital Twin
+            </span>
+            <span
+              className="ml-3 font-mono text-xs"
+              style={{ color: '#9a9aaa' }}
+            >
+              {items.length} node{items.length !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
+
         <ViewerToolbar
           onToggleImport={() => setImportOpen((prev) => !prev)}
           importOpen={importOpen}
         />
       </div>
 
-      {/* Import panel — slides in below the header when open */}
+      {/* ── Import slide-in panel ── */}
       {importOpen && (
-        <div className="border-b border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <div
+          className="flex-shrink-0 px-4 py-3"
+          style={{
+            borderBottom: '1px solid rgba(65,72,90,0.2)',
+            background: 'rgba(30,31,38,0.95)',
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span
+              className="font-mono text-xs uppercase tracking-widest"
+              style={{ color: '#9a9aaa', letterSpacing: '0.1em' }}
+            >
               Import Work Product
             </span>
             <button
               type="button"
               aria-label="Close import panel"
               onClick={() => setImportOpen(false)}
-              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              className="flex items-center justify-center rounded transition-colors cursor-pointer border-0 p-1"
+              style={{ background: 'transparent', color: '#9a9aaa' }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = '#e2e2eb';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = '#9a9aaa';
+              }}
             >
-              <X size={16} />
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                close
+              </span>
             </button>
           </div>
-          <ImportZone onSuccess={() => setImportOpen(false)} />
+
+          {/* Drop zone */}
+          <div
+            className="flex flex-col items-center justify-center rounded cursor-pointer transition-colors"
+            style={{
+              border: '2px dashed rgba(65,72,90,0.4)',
+              padding: '24px 16px',
+              color: '#9a9aaa',
+              textAlign: 'center',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(230,126,34,0.4)';
+              (e.currentTarget as HTMLDivElement).style.background = 'rgba(230,126,34,0.04)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(65,72,90,0.4)';
+              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+            }}
+          >
+            <span className="material-symbols-outlined mb-2" style={{ fontSize: 28, color: '#9a9aaa' }}>
+              file_upload
+            </span>
+            <p className="font-mono text-xs" style={{ color: '#e2e2eb', marginBottom: 4 }}>
+              Drag &amp; drop a file here, or click to browse
+            </p>
+            <p className="font-mono" style={{ fontSize: 10, color: '#9a9aaa' }}>
+              .step .stp .iges .igs .kicad_sch .kicad_pcb .fcstd &middot; max 100 MB
+            </p>
+          </div>
         </div>
       )}
 
-      {/* Content */}
+      {/* ── Content ── */}
       {viewMode === 'graph' ? (
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex flex-1 overflow-hidden">
           <GraphView />
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
           {/* Component Tree Sidebar */}
           {manifest && (
-            <div className="w-60 flex-shrink-0 border-r border-zinc-200 dark:border-zinc-700">
+            <div
+              className="flex-shrink-0"
+              style={{
+                width: 240,
+                borderRight: '1px solid rgba(65,72,90,0.2)',
+              }}
+            >
               <ComponentTree />
             </div>
           )}
@@ -520,14 +696,18 @@ export function TwinViewerPage() {
           {/* 3D Viewer (center) */}
           <div className="relative flex-1">
             <R3FViewer onPartClick={handlePartClick} />
-
-            {/* Exploded View Controls overlay */}
             {glbUrl && <ExplodedViewControls />}
           </div>
 
           {/* BOM Annotation Panel (right) */}
           {selectedMeshName && manifest && (
-            <div className="w-80 flex-shrink-0 border-l border-zinc-200 dark:border-zinc-700">
+            <div
+              className="flex-shrink-0"
+              style={{
+                width: 320,
+                borderLeft: '1px solid rgba(65,72,90,0.2)',
+              }}
+            >
               <BomAnnotationPanel />
             </div>
           )}
