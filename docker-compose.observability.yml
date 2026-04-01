@@ -83,10 +83,9 @@ services:
       - ./observability/alloy-config.alloy:/etc/alloy/alloy-config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy
-    depends_on:
-      - loki
     networks:
       - metaforge-obs
+      - metaforge
 
   alertmanager:
     image: prom/alertmanager:latest
@@ -110,3 +109,5 @@ volumes:
 networks:
   metaforge-obs:
     driver: bridge
+  metaforge:
+    external: true
