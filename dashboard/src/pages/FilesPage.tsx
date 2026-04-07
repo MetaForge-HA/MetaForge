@@ -10,7 +10,7 @@ const STATUS_DOT_COLOR: Record<FileLinkStatus, string> = {
 };
 
 // ── Tool chip colours ─────────────────────────────────────────────────────────
-const TOOL_CHIP: { [key: string]: { color: string; bg: string } } & { other: { color: string; bg: string } } = {
+const TOOL_CHIP: Record<string, { color: string; bg: string }> = {
   kicad:  { color: '#86cfff', bg: 'rgba(134,207,255,0.1)' },
   freecad:{ color: '#e67e22', bg: 'rgba(230,126,34,0.1)'  },
   spice:  { color: '#3dd68c', bg: 'rgba(61,214,140,0.1)'  },
@@ -24,8 +24,8 @@ function toolKey(tool: FileLinkTool): string {
 // ── Tool chip ─────────────────────────────────────────────────────────────────
 function ToolChip({ tool }: { tool: FileLinkTool }) {
   const key = toolKey(tool);
-  const chip = TOOL_CHIP[key] ?? TOOL_CHIP.other;
-  const { color, bg } = chip;
+  const entry = TOOL_CHIP[key] ?? TOOL_CHIP['other']!;
+  const { color, bg } = entry;
   return (
     <span
       style={{
@@ -109,8 +109,8 @@ function IconBtn({
 
 // ── File link row ─────────────────────────────────────────────────────────────
 function FileLinkRow({ link }: { link: FileLink }) {
-  const deleteMutation = useDeleteLink(link.work_product_id);
-  const syncMutation   = useSyncNode(link.work_product_id);
+  const deleteMutation = useDeleteLink(link.node_id);
+  const syncMutation   = useSyncNode(link.node_id);
   const relTime = link.last_synced_at ? formatRelative(link.last_synced_at) : '—';
 
   return (
@@ -126,7 +126,7 @@ function FileLinkRow({ link }: { link: FileLink }) {
     >
       <ToolChip tool={link.tool} />
       <span
-        title={link.source_path}
+        title={link.file_path}
         style={{
           flex: 1,
           fontSize: 13,
@@ -137,9 +137,9 @@ function FileLinkRow({ link }: { link: FileLink }) {
           minWidth: 0,
         }}
       >
-        {link.source_path}
+        {link.file_path}
       </span>
-      <StatusDot status={link.sync_status} />
+      <StatusDot status={link.status} />
       <span
         style={{
           fontFamily: 'monospace',
@@ -152,7 +152,7 @@ function FileLinkRow({ link }: { link: FileLink }) {
         {relTime}
       </span>
       <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-        {link.sync_status !== 'disconnected' && (
+        {link.status !== 'disconnected' && (
           <IconBtn
             icon="sync"
             title="Sync"
@@ -210,15 +210,15 @@ export function FilesPage() {
   const [filterTool, setFilterTool] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const synced       = links?.filter(l => l.sync_status === 'synced').length       ?? 0;
-  const changed      = links?.filter(l => l.sync_status === 'changed').length      ?? 0;
-  const disconnected = links?.filter(l => l.sync_status === 'disconnected').length ?? 0;
+  const synced       = links?.filter(l => l.status === 'synced').length       ?? 0;
+  const changed      = links?.filter(l => l.status === 'changed').length      ?? 0;
+  const disconnected = links?.filter(l => l.status === 'disconnected').length ?? 0;
   const total        = links?.length ?? 0;
 
   const filteredLinks = (links ?? []).filter(l => {
     const matchTool = filterTool === 'all' || toolKey(l.tool) === filterTool;
     const matchSearch = searchQuery === '' ||
-      l.source_path.toLowerCase().includes(searchQuery.toLowerCase());
+      l.file_path.toLowerCase().includes(searchQuery.toLowerCase());
     return matchTool && matchSearch;
   });
 
@@ -424,7 +424,7 @@ export function FilesPage() {
                 <span style={{ fontSize: 13, color: '#9a9aaa' }}>No source files linked yet</span>
               </div>
             ) : (
-              filteredLinks.map(link => <FileLinkRow key={link.work_product_id} link={link} />)
+              filteredLinks.map(link => <FileLinkRow key={link.id} link={link} />)
             )}
           </div>
 
@@ -442,7 +442,7 @@ export function FilesPage() {
             {pipelineRows
               ? pipelineRows.map(link => (
                   <div
-                    key={link.work_product_id}
+                    key={link.id}
                     style={{
                       height: 36,
                       padding: '0 16px',
@@ -453,7 +453,7 @@ export function FilesPage() {
                     }}
                   >
                     <span
-                      title={link.source_path}
+                      title={link.file_path}
                       style={{
                         fontFamily: 'monospace',
                         fontSize: 11,
@@ -465,10 +465,10 @@ export function FilesPage() {
                         minWidth: 0,
                       }}
                     >
-                      {link.source_path}
+                      {link.file_path}
                     </span>
                     <ToolChip tool={link.tool} />
-                    <StatusDot status={link.sync_status} />
+                    <StatusDot status={link.status} />
                     <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#9a9aaa', whiteSpace: 'nowrap' }}>
                       {link.last_synced_at ? formatRelative(link.last_synced_at) : '—'}
                     </span>
@@ -532,7 +532,7 @@ export function FilesPage() {
             {(['kicad', 'freecad', 'spice', 'other'] as const).map(key => {
               const count = toolCounts[key] ?? 0;
               const pct = toolTotal > 0 ? (count / toolTotal) * 100 : 0;
-              const { color } = TOOL_CHIP[key] ?? TOOL_CHIP.other;
+              const color = TOOL_CHIP[key]?.color ?? '#9a9aaa';
               return (
                 <div key={key} style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>

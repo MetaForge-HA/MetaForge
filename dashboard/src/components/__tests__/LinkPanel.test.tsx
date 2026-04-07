@@ -4,29 +4,30 @@ import { LinkPanel } from '../LinkPanel';
 import type { FileLink, SyncResult } from '../../types/twin';
 
 const MOCK_SYNCED_LINK: FileLink = {
-  work_product_id: 'node-001',
-  source_path: '/tmp/model.step',
+  id: 'link-001',
+  node_id: 'node-001',
+  file_path: '/tmp/model.step',
   tool: 'cadquery',
   watch: false,
-  sync_status: 'synced',
-  source_hash: 'abc123',
+  status: 'synced',
   last_synced_at: '2026-03-26T00:00:00Z',
   created_at: '2026-03-25T00:00:00Z',
 };
 
 const MOCK_CHANGED_LINK: FileLink = {
   ...MOCK_SYNCED_LINK,
-  sync_status: 'changed',
+  status: 'changed',
 };
 
 const MOCK_DISCONNECTED_LINK: FileLink = {
   ...MOCK_SYNCED_LINK,
-  sync_status: 'disconnected',
+  status: 'disconnected',
 };
 
 const MOCK_SYNC_RESULT: SyncResult = {
-  work_product_id: 'node-001',
-  sync_status: 'synced',
+  link_id: 'link-001',
+  node_id: 'node-001',
+  status: 'synced',
   changes: { mass: { before: '1.2', after: '1.5' } },
   synced_at: '2026-03-26T01:00:00Z',
 };

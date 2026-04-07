@@ -1,6 +1,12 @@
 import type { TwinNode, TwinRelationship, ImportWorkProductResponse, FileLink, FileLinkTool, SyncResult } from '../../types/twin';
 import apiClient from '../client';
 
+const MOCK_RELATIONSHIPS: TwinRelationship[] = [
+  { id: 'rel-001', sourceId: 'node-001', targetId: 'node-004', type: 'constrained_by', label: 'Stress constraint' },
+  { id: 'rel-002', sourceId: 'node-002', targetId: 'node-003', type: 'generates', label: 'PCB from schematic' },
+  { id: 'rel-003', sourceId: 'node-003', targetId: 'node-005', type: 'constrained_by', label: 'Clearance constraint' },
+  { id: 'rel-004', sourceId: 'node-002', targetId: 'node-009', type: 'constrained_by', label: 'Power budget' },
+];
 
 interface TwinNodeApiResponse {
   id: string;
@@ -48,18 +54,8 @@ export async function getTwinNode(id: string): Promise<TwinNode | undefined> {
   }
 }
 
-interface TwinRelationshipListApiResponse {
-  relationships: TwinRelationship[];
-  total: number;
-}
-
 export async function getTwinRelationships(): Promise<TwinRelationship[]> {
-  try {
-    const { data } = await apiClient.get<TwinRelationshipListApiResponse>('/twin/relationships');
-    return data.relationships;
-  } catch {
-    return [];
-  }
+  return MOCK_RELATIONSHIPS;
 }
 
 export interface NodeModelResult {
@@ -96,7 +92,7 @@ export async function importWorkProduct(
 
 export async function createLink(
   nodeId: string,
-  payload: { source_path: string; tool: FileLinkTool; watch: boolean },
+  payload: { file_path: string; tool: FileLinkTool; watch: boolean },
 ): Promise<FileLink> {
   const { data } = await apiClient.post<FileLink>(`/twin/nodes/${nodeId}/link`, payload);
   return data;
@@ -130,5 +126,10 @@ export async function deleteLink(nodeId: string): Promise<void> {
 
 export async function syncNode(nodeId: string): Promise<SyncResult> {
   const { data } = await apiClient.post<SyncResult>(`/twin/nodes/${nodeId}/sync`);
+  return data;
+}
+
+export async function getNodeVersionHistory(nodeId: string): Promise<Record<string, unknown>[]> {
+  const { data } = await apiClient.get<Record<string, unknown>[]>(`/twin/nodes/${nodeId}/versions`);
   return data;
 }
