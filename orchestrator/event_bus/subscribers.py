@@ -20,6 +20,7 @@ from observability.tracing import get_tracer
 from orchestrator.event_bus.events import Event, EventType
 
 if TYPE_CHECKING:
+    from digital_twin.knowledge.service import KnowledgeService
     from orchestrator.event_bus.kafka_producer import KafkaEventPublisher
     from orchestrator.workflow_dag import WorkflowEngine
 
@@ -238,12 +239,25 @@ class WorkflowEventSubscriber(EventSubscriber):
 def create_default_bus(
     workflow_engine: WorkflowEngine | None = None,
     collector: MetricsCollector | None = None,
+    knowledge_service: KnowledgeService | None = None,
 ) -> EventBus:
-    """Create an event bus with the standard subscriber set."""
+    """Create an event bus with the standard subscriber set.
+
+    When ``knowledge_service`` is supplied, the bus subscribes the L1
+    ``KnowledgeConsumer`` so ``WORK_PRODUCT_CREATED`` /
+    ``WORK_PRODUCT_UPDATED`` events flow into the knowledge layer
+    automatically (MET-307). When ``None``, the consumer is *not*
+    registered — callers that want indexing must wire it explicitly.
+    """
     bus = EventBus(collector=collector)
     bus.subscribe(AuditEventSubscriber())
     if workflow_engine is not None:
         bus.subscribe(WorkflowEventSubscriber(workflow_engine))
+    if knowledge_service is not None:
+        from digital_twin.knowledge.consumer import KnowledgeConsumer
+
+        bus.subscribe(KnowledgeConsumer(knowledge_service))
+        logger.info("knowledge_consumer_subscribed")
     return bus
 
 
@@ -251,6 +265,7 @@ def create_kafka_bus(
     bootstrap_servers: str = "localhost:9092",
     client_id: str = "metaforge-producer",
     workflow_engine: WorkflowEngine | None = None,
+    knowledge_service: KnowledgeService | None = None,
 ) -> tuple[EventBus, KafkaEventPublisher]:
     """Create an event bus backed by a ``KafkaEventPublisher``.
 
@@ -268,4 +283,8 @@ def create_kafka_bus(
     bus.subscribe(AuditEventSubscriber())
     if workflow_engine is not None:
         bus.subscribe(WorkflowEventSubscriber(workflow_engine))
+    if knowledge_service is not None:
+        from digital_twin.knowledge.consumer import KnowledgeConsumer
+
+        bus.subscribe(KnowledgeConsumer(knowledge_service))
     return bus, publisher

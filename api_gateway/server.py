@@ -453,7 +453,15 @@ async def _init_orchestrator(app: FastAPI) -> None:
     init_projects_twin(twin)
     init_twin_viewer(twin)
 
-    event_bus = create_default_bus(workflow_engine, collector=_collector)
+    # Initialize the L1 KnowledgeService BEFORE creating the bus so the
+    # KnowledgeConsumer subscription can be wired in one shot (MET-307).
+    await _init_knowledge_store(app)
+
+    event_bus = create_default_bus(
+        workflow_engine,
+        collector=_collector,
+        knowledge_service=getattr(app.state, "knowledge_service", None),
+    )
 
     # Register all workflow definitions
     for defn in ACTION_WORKFLOWS.values():
@@ -486,9 +494,6 @@ async def _init_orchestrator(app: FastAPI) -> None:
     app.state.mcp = mcp
     app.state.event_bus = event_bus
     app.state.action_workflows = ACTION_WORKFLOWS
-
-    # Initialize knowledge store and embedding service
-    await _init_knowledge_store(app)
 
     # Register Neo4j health check if using Neo4j backend
     _graph_engine = twin._graph  # noqa: SLF001

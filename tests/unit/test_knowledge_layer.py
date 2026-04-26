@@ -237,25 +237,59 @@ class TestEmbeddingFactory:
 # ============================================================================
 
 
+class _FakeKnowledgeService:
+    """Stand-in for ``KnowledgeService`` that records calls.
+
+    Lets the consumer tests assert ``ingest`` / ``delete_by_source``
+    behaviour without a live LightRAG backend.
+    """
+
+    def __init__(self) -> None:
+        self.ingests: list[dict[str, object]] = []
+        self.deletes: list[str] = []
+
+    async def ingest(
+        self,
+        content: str,
+        source_path: str,
+        knowledge_type: KnowledgeType,
+        source_work_product_id: object | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> object:
+        from digital_twin.knowledge.service import IngestResult
+
+        self.ingests.append(
+            {
+                "content": content,
+                "source_path": source_path,
+                "knowledge_type": knowledge_type,
+                "source_work_product_id": source_work_product_id,
+                "metadata": metadata,
+            }
+        )
+        return IngestResult(entry_ids=[uuid4()], chunks_indexed=1, source_path=source_path)
+
+    async def search(self, *args: object, **kwargs: object) -> list[object]:
+        return []
+
+    async def delete_by_source(self, source_path: str) -> int:
+        self.deletes.append(source_path)
+        return 1
+
+    async def health_check(self) -> dict[str, object]:
+        return {"status": "ok"}
+
+
 class TestKnowledgeConsumer:
-    """Test event-driven knowledge indexing."""
+    """Test event-driven knowledge indexing through ``KnowledgeService``."""
 
     @pytest.fixture()
-    def store(self) -> InMemoryKnowledgeStore:
-        return InMemoryKnowledgeStore()
+    def service(self) -> _FakeKnowledgeService:
+        return _FakeKnowledgeService()
 
     @pytest.fixture()
-    def mock_embedding(self) -> AsyncMock:
-        svc = AsyncMock()
-        svc.embed.return_value = [0.5, 0.5, 0.0]
-        svc.embed_batch.return_value = [[0.5, 0.5, 0.0]]
-        return svc
-
-    @pytest.fixture()
-    def consumer(
-        self, store: InMemoryKnowledgeStore, mock_embedding: AsyncMock
-    ) -> KnowledgeConsumer:
-        return KnowledgeConsumer(store=store, embedding_service=mock_embedding)
+    def consumer(self, service: _FakeKnowledgeService) -> KnowledgeConsumer:
+        return KnowledgeConsumer(service=service)  # type: ignore[arg-type]
 
     def test_subscriber_id(self, consumer: KnowledgeConsumer) -> None:
         assert consumer.subscriber_id == "knowledge_consumer"
@@ -269,8 +303,9 @@ class TestKnowledgeConsumer:
     async def test_on_event_indexes_artifact(
         self,
         consumer: KnowledgeConsumer,
-        store: InMemoryKnowledgeStore,
+        service: _FakeKnowledgeService,
     ) -> None:
+        wp_id = uuid4()
         event = Event(
             id=str(uuid4()),
             type=EventType.WORK_PRODUCT_CREATED,
@@ -279,19 +314,44 @@ class TestKnowledgeConsumer:
             data={
                 "content": "Design decision: use aluminum",
                 "work_product_type": "design_decision",
-                "work_product_id": uuid4(),
+                "work_product_id": wp_id,
             },
         )
         await consumer.on_event(event)
-        entries = await store.list()
-        assert len(entries) == 1
-        assert entries[0].content == "Design decision: use aluminum"
-        assert entries[0].knowledge_type == KnowledgeType.DESIGN_DECISION
+        assert len(service.ingests) == 1
+        ingest = service.ingests[0]
+        assert ingest["content"] == "Design decision: use aluminum"
+        assert ingest["knowledge_type"] == KnowledgeType.DESIGN_DECISION
+        assert ingest["source_work_product_id"] == wp_id
+        assert ingest["source_path"] == f"work_product://{wp_id}"
+        assert service.deletes == []  # CREATE event should not delete
+
+    async def test_on_event_updates_predelete(
+        self,
+        consumer: KnowledgeConsumer,
+        service: _FakeKnowledgeService,
+    ) -> None:
+        wp_id = uuid4()
+        event = Event(
+            id=str(uuid4()),
+            type=EventType.WORK_PRODUCT_UPDATED,
+            timestamp=datetime.now(UTC).isoformat(),
+            source="test",
+            data={
+                "content": "Updated decision",
+                "work_product_type": "design_decision",
+                "work_product_id": wp_id,
+            },
+        )
+        await consumer.on_event(event)
+        # UPDATE must delete prior chunks before re-ingesting.
+        assert service.deletes == [f"work_product://{wp_id}"]
+        assert len(service.ingests) == 1
 
     async def test_on_event_skips_empty_content(
         self,
         consumer: KnowledgeConsumer,
-        store: InMemoryKnowledgeStore,
+        service: _FakeKnowledgeService,
     ) -> None:
         event = Event(
             id=str(uuid4()),
@@ -301,26 +361,20 @@ class TestKnowledgeConsumer:
             data={},  # No content
         )
         await consumer.on_event(event)
-        entries = await store.list()
-        assert len(entries) == 0
+        assert service.ingests == []
 
     async def test_ingest_batch(
         self,
         consumer: KnowledgeConsumer,
-        store: InMemoryKnowledgeStore,
+        service: _FakeKnowledgeService,
     ) -> None:
         items = [
             {"content": "Item 1", "knowledge_type": "session"},
             {"content": "Item 2", "knowledge_type": "component"},
         ]
-        consumer._embedding.embed_batch.return_value = [
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ]
         count = await consumer.ingest_batch(items)
         assert count == 2
-        entries = await store.list()
-        assert len(entries) == 2
+        assert len(service.ingests) == 2
 
 
 # ============================================================================
