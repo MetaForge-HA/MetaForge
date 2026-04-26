@@ -70,6 +70,28 @@ class IngestResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class IngestDocumentRequest(BaseModel):
+    """Request body for L1 document ingestion via ``KnowledgeService`` (MET-336)."""
+
+    content: str = Field(..., min_length=1)
+    source_path: str = Field(..., min_length=1, alias="sourcePath")
+    knowledge_type: KnowledgeType = Field(alias="knowledgeType")
+    source_work_product_id: UUID | None = Field(default=None, alias="sourceWorkProductId")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+class IngestDocumentResponse(BaseModel):
+    """L1 ingest result — mirrors ``IngestResult`` (MET-336)."""
+
+    entry_ids: list[UUID] = Field(alias="entryIds")
+    chunks_indexed: int = Field(alias="chunksIndexed")
+    source_path: str = Field(alias="sourcePath")
+
+    model_config = {"populate_by_name": True}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -132,6 +154,54 @@ async def search_knowledge(
             results=results,
             query=query,
             totalFound=len(results),
+        )
+
+
+def _get_knowledge_service(request: Request) -> Any:
+    svc = getattr(request.app.state, "knowledge_service", None)
+    if svc is None:
+        raise HTTPException(
+            status_code=503,
+            detail="KnowledgeService not initialized; set DATABASE_URL and restart.",
+        )
+    return svc
+
+
+@router.post(
+    "/documents",
+    response_model=IngestDocumentResponse,
+    status_code=201,
+)
+async def ingest_document(
+    request: Request,
+    body: IngestDocumentRequest,
+) -> IngestDocumentResponse:
+    """Ingest a document (markdown / plain text) via the L1 ``KnowledgeService``.
+
+    Backs the ``forge ingest <path>`` CLI (MET-336). Heading-aware
+    chunking, dedup, and citation metadata are handled by the
+    underlying provider — the route is a thin pass-through.
+    """
+    with tracer.start_as_current_span("knowledge_api.ingest_document") as span:
+        span.set_attribute("knowledge.source_path", body.source_path)
+        span.set_attribute("knowledge.type", str(body.knowledge_type))
+        service = _get_knowledge_service(request)
+        result = await service.ingest(
+            content=body.content,
+            source_path=body.source_path,
+            knowledge_type=body.knowledge_type,
+            source_work_product_id=body.source_work_product_id,
+            metadata=body.metadata or None,
+        )
+        logger.info(
+            "knowledge_document_ingested",
+            source_path=body.source_path,
+            chunks=result.chunks_indexed,
+        )
+        return IngestDocumentResponse(
+            entryIds=list(result.entry_ids),
+            chunksIndexed=result.chunks_indexed,
+            sourcePath=result.source_path,
         )
 
 

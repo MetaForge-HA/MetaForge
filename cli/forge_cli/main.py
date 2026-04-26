@@ -90,6 +90,55 @@ def build_parser() -> argparse.ArgumentParser:
     reject_parser.add_argument("--reason", required=True, help="Rejection reason")
     reject_parser.add_argument("--reviewer", default="cli-user", help="Reviewer identity")
 
+    # -- ingest ------------------------------------------------------------
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Ingest markdown / PDF docs into the L1 knowledge layer",
+    )
+    ingest_parser.add_argument(
+        "path",
+        help="File or directory to ingest. Directories walk recursively by default.",
+    )
+    ingest_parser.add_argument(
+        "--type",
+        dest="knowledge_type",
+        default=None,
+        help=(
+            "Knowledge type for every file in this run (one of: "
+            "design_decision, component, failure, constraint, session). "
+            "If omitted, the CLI infers per-file from the path."
+        ),
+    )
+    ingest_parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="When ingesting a directory, only consider its immediate children.",
+    )
+    ingest_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List files that would be ingested without making any HTTP calls.",
+    )
+    ingest_parser.add_argument(
+        "--work-product",
+        dest="work_product",
+        default=None,
+        help="Optional source_work_product_id (UUID) tagged on every ingested doc.",
+    )
+    ingest_parser.add_argument(
+        "--metadata",
+        default=None,
+        help="JSON object of extra metadata round-tripped on search hits.",
+    )
+    ingest_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help=(
+            "Per-request HTTP timeout in seconds. Override with METAFORGE_INGEST_TIMEOUT env var."
+        ),
+    )
+
     return parser
 
 
@@ -164,6 +213,14 @@ def handle_reject(args: argparse.Namespace, client: ForgeClient) -> Any:
 # Main
 # ---------------------------------------------------------------------------
 
+
+def handle_ingest(args: argparse.Namespace, client: ForgeClient) -> Any:
+    """Handle ``forge ingest <path>``."""
+    from cli.forge_cli.ingest import handle_ingest as _do_ingest
+
+    return _do_ingest(args, client)
+
+
 _HANDLERS = {
     "run": handle_run,
     "status": handle_status,
@@ -171,6 +228,7 @@ _HANDLERS = {
     "proposals": handle_proposals,
     "approve": handle_approve,
     "reject": handle_reject,
+    "ingest": handle_ingest,
 }
 
 
