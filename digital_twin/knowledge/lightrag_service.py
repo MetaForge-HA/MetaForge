@@ -317,6 +317,10 @@ class LightRAGKnowledgeService:
             self._rag = LightRAG(**kwargs)
             await self._rag.initialize_storages()
             await initialize_pipeline_status()
+            # Pre-warm the sentence-transformers model so the first
+            # ainsert call doesn't pay the full model-load latency
+            # inside LightRAG's 60 s embedding-worker timeout.
+            await self._prewarm_embedder()
             self._initialized = True
             logger.info(
                 "lightrag_initialized",
@@ -538,6 +542,24 @@ class LightRAGKnowledgeService:
     async def _ensure_initialized(self) -> None:
         if not self._initialized:
             await self.initialize()
+
+    async def _prewarm_embedder(self) -> None:
+        """Force the sentence-transformers model to load eagerly.
+
+        ``SentenceTransformer.__init__`` is fast but the first
+        ``.encode()`` call blocks on lazy weight loading and tokenizer
+        warm-up — typically 30-90 s on a cold filesystem. LightRAG's
+        embedding worker only allows 60 s before raising
+        ``TimeoutError``. Eagerly running a 1-token encode here keeps
+        the first user-facing ``ingest`` call fast and well under the
+        worker budget.
+        """
+        try:
+            embedder = self._make_embedder()
+            await embedder(["warmup"])
+            logger.info("lightrag_embedder_prewarmed", model=self._cfg.embedding_model)
+        except Exception as exc:  # pragma: no cover — best effort
+            logger.warning("lightrag_embedder_prewarm_failed", error=str(exc))
 
     def _make_embedder(self) -> Any:
         """Return an async embedding callable for LightRAG.
