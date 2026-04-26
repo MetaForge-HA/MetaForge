@@ -87,9 +87,9 @@ services:
       - metaforge
     restart: unless-stopped
 
-  # ── PostgreSQL (Gateway persistence — chat, sessions, projects) ──
+  # ── PostgreSQL (Gateway persistence + pgvector for L1 knowledge) ──
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:

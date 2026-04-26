@@ -17,8 +17,14 @@ logger = structlog.get_logger(__name__)
 tracer = get_tracer("digital_twin.knowledge.chunker")
 
 
-class TextChunker:
+class TextChunker:  # pragma: deprecated
     """Split text into overlapping chunks for embedding.
+
+    .. deprecated:: MET-346
+        Chunking is now LightRAG's responsibility (heading-aware
+        markdown splitter inside ``LightRAGKnowledgeService``). Removal
+        is gated on MET-307. Do not call from new code.
+
 
     Parameters
     ----------

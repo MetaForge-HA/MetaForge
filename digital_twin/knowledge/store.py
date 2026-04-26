@@ -204,8 +204,14 @@ class InMemoryKnowledgeStore(KnowledgeStore):
 # ---------------------------------------------------------------------------
 
 
-class PgVectorKnowledgeStore(KnowledgeStore):
+class PgVectorKnowledgeStore(KnowledgeStore):  # pragma: deprecated
     """PostgreSQL + pgvector backed knowledge store for production.
+
+    .. deprecated:: MET-346
+        Replaced by ``digital_twin.knowledge.lightrag_service.LightRAGKnowledgeService``
+        behind the ``KnowledgeService`` Protocol. Removal is gated on
+        MET-307 (pgvector pipeline verification). New callers must use
+        ``digital_twin.knowledge.create_knowledge_service``.
 
     Uses ``asyncpg`` for async connection pooling and pgvector's
     ``vector`` type for embedding storage with cosine similarity search.

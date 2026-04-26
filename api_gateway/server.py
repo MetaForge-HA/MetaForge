@@ -164,23 +164,52 @@ async def _init_database() -> None:
 
 
 async def _init_knowledge_store(app: FastAPI) -> None:
-    """Initialize knowledge store and embedding service on app.state.
+    """Initialize the L1 ``KnowledgeService`` and the legacy store on app.state.
 
-    Uses PgVector when ``DATABASE_URL`` is set and asyncpg + pgvector are
-    available.  Falls back to InMemoryKnowledgeStore otherwise.
+    Per MET-346 / ADR-008, the L1 entry point is now the
+    ``KnowledgeService`` Protocol via ``create_knowledge_service``.
+    The legacy ``KnowledgeStore`` (Pgvector / in-memory) stays wired on
+    ``app.state.knowledge_store`` until its consumers (skill handlers,
+    knowledge routes, ``KnowledgeConsumer``) migrate — see MET-307.
+
+    Boot order:
+      1. Try the LightRAG service if ``DATABASE_URL`` is set; expose
+         it on ``app.state.knowledge_service``.
+      2. Initialize the legacy PgVector store (or in-memory fallback)
+         on ``app.state.knowledge_store`` for back-compat.
     """
+    from digital_twin.knowledge import create_knowledge_service
     from digital_twin.knowledge.store import InMemoryKnowledgeStore
 
-    knowledge_store = None
+    db_url = os.environ.get("DATABASE_URL")
     pgvector_active = False
 
-    # Try PgVector if DATABASE_URL is set
-    db_url = os.environ.get("DATABASE_URL")
+    # ----- New L1 service (LightRAG) ---------------------------------
+    knowledge_service = None
+    if db_url:
+        try:
+            dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+            knowledge_service = create_knowledge_service(
+                "lightrag",
+                working_dir=os.environ.get(
+                    "METAFORGE_LIGHTRAG_WORKDIR", "./.lightrag-storage"
+                ),
+                postgres_dsn=dsn,
+            )
+            await knowledge_service.initialize()  # type: ignore[attr-defined]
+            pgvector_active = True
+            logger.info("knowledge_service_lightrag_initialized")
+        except Exception as exc:
+            logger.warning("knowledge_service_lightrag_failed", error=str(exc))
+            knowledge_service = None
+    app.state.knowledge_service = knowledge_service
+
+    # ----- Legacy store (still consumed by skills + routes) ----------
+    knowledge_store = None
     if db_url:
         try:
             from digital_twin.knowledge.store import PgVectorKnowledgeStore
 
-            # Convert SQLAlchemy DSN to asyncpg DSN
             dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
             pg_store = PgVectorKnowledgeStore(dsn=dsn)
             await pg_store.initialize()
@@ -419,6 +448,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await file_watcher.stop()
     if hasattr(app.state, "scheduler"):
         await app.state.scheduler.stop()
+    # Close LightRAG service if active
+    if hasattr(app.state, "knowledge_service") and app.state.knowledge_service is not None:
+        try:
+            await app.state.knowledge_service.close()
+            logger.info("knowledge_service_closed")
+        except Exception:
+            pass
     # Close PgVector knowledge store if active
     if hasattr(app.state, "knowledge_store") and hasattr(app.state.knowledge_store, "close"):
         try:
