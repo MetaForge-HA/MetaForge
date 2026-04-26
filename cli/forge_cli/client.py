@@ -158,3 +158,36 @@ class ForgeClient:
             resp = client.post(self._url(f"/assistant/proposals/{change_id}/decide"), json=payload)
             resp.raise_for_status()
             return resp.json()
+
+    # ------------------------------------------------------------------
+    # Knowledge ingestion (MET-336)
+    # ------------------------------------------------------------------
+
+    def ingest_document(
+        self,
+        content: str,
+        source_path: str,
+        knowledge_type: str,
+        source_work_product_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a document via ``POST /api/v1/knowledge/documents``.
+
+        Larger payloads need a longer timeout than the 30s default
+        because LightRAG's ingest pipeline runs synchronously inside
+        the request — pass ``timeout=120`` for big PDFs.
+        """
+        payload: dict[str, Any] = {
+            "content": content,
+            "sourcePath": source_path,
+            "knowledgeType": knowledge_type,
+            "metadata": metadata or {},
+        }
+        if source_work_product_id:
+            payload["sourceWorkProductId"] = source_work_product_id
+        eff_timeout = timeout if timeout is not None else self.timeout
+        with httpx.Client(base_url=self.base_url, timeout=eff_timeout) as client:
+            resp = client.post(self._url("/knowledge/documents"), json=payload)
+            resp.raise_for_status()
+            return resp.json()
