@@ -53,6 +53,12 @@ knowledge = [
     "asyncpg>=0.29",
     "pgvector>=0.2",
     "sentence-transformers>=2.0",
+    # L1 framework — see ADR-008. ``lightrag-hku`` is the production
+    # backend behind the ``KnowledgeService`` Protocol; ``raganything``
+    # supplies the multimodal ingest path (PDF, images) parked behind
+    # P1.13.
+    "lightrag-hku>=1.4",
+    "raganything>=1.2",
 ]
 cadquery = [
     "cadquery>=2.4.0",
@@ -70,6 +76,9 @@ gateway = [
     "asyncpg>=0.29",
     "neo4j>=5.0",
     "pgvector>=0.2",
+    "sentence-transformers>=2.0",
+    "lightrag-hku>=1.4",
+    "raganything>=1.2",
 ]
 
 [tool.pytest.ini_options]

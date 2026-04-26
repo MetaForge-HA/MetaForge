@@ -54,6 +54,10 @@ node_modules/
 # MCP config
 .mcp.json
 
+# LightRAG local storage (working_dir for the L1 KnowledgeService)
+.lightrag-storage/
+.lightrag-spike-storage/
+
 # Ripgrep config
 .ripgreprc
 

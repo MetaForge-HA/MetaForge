@@ -22,6 +22,41 @@ from twin_core.api import InMemoryTwinAPI
 from twin_core.models.enums import WorkProductType
 from twin_core.models.work_product import WorkProduct
 
+
+# Tests marked ``@pytest.mark.integration`` need real backing services
+# (Postgres, Neo4j, etc.) and are skipped unless ``--integration`` is
+# passed. Keeps the default unit suite hermetic and fast.
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Run tests marked @pytest.mark.integration (requires live services).",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "integration: requires live external services (Postgres+pgvector, Neo4j); "
+        "opt in with --integration",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--integration"):
+        return
+    skip_integration = pytest.mark.skip(reason="needs --integration")
+    # ``item.iter_markers`` checks for an explicit ``@pytest.mark.integration``
+    # decorator. Using ``"integration" in item.keywords`` would also match
+    # any test file whose path contains "integration" — surprising and
+    # would skip the existing httpx-only smoke tests under
+    # tests/integration/.
+    for item in items:
+        if any(m.name == "integration" for m in item.iter_markers()):
+            item.add_marker(skip_integration)
+
+
 # ---------------------------------------------------------------------------
 # Spy subscriber for capturing events
 # ---------------------------------------------------------------------------
