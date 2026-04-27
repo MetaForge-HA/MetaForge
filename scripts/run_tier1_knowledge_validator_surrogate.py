@@ -53,9 +53,7 @@ async def main() -> int:
         verdict = "PASS" if condition else "FAIL"
         if not condition:
             overall_status = "FAIL"
-        verdicts.append(
-            {"scenario": scenario, "then": label, "verdict": verdict, "detail": detail}
-        )
+        verdicts.append({"scenario": scenario, "then": label, "verdict": verdict, "detail": detail})
 
     svc_suffix = uuid.uuid4().hex[:8]
     svc = create_knowledge_service(
@@ -110,15 +108,26 @@ async def main() -> int:
             },
             (time.perf_counter() - t0) * 1000,
         )
-        then(scen, "ingest returns chunks_indexed >= 1", s1_ingest.chunks_indexed >= 1,
-             f"chunks_indexed={s1_ingest.chunks_indexed}")
+        then(
+            scen,
+            "ingest returns chunks_indexed >= 1",
+            s1_ingest.chunks_indexed >= 1,
+            f"chunks_indexed={s1_ingest.chunks_indexed}",
+        )
         s1_match = next((h for h in s1_hits if h.source_path == s1_path), None)
-        then(scen, "≥1 hit has source_path == round-trip path", s1_match is not None,
-             f"hits={[h.source_path for h in s1_hits]}")
+        then(
+            scen,
+            "≥1 hit has source_path == round-trip path",
+            s1_match is not None,
+            f"hits={[h.source_path for h in s1_hits]}",
+        )
         s1_text = (s1_match.content or "").lower() if s1_match else ""
-        then(scen, "matching hit content contains 'pgvector' or 'LightRAG'",
-             "pgvector" in s1_text or "lightrag" in s1_text,
-             f"content_preview={s1_text[:200]!r}")
+        then(
+            scen,
+            "matching hit content contains 'pgvector' or 'LightRAG'",
+            "pgvector" in s1_text or "lightrag" in s1_text,
+            f"content_preview={s1_text[:200]!r}",
+        )
 
         # --------------------------------------------------------------
         # Scenario 2: ingest classifies by knowledge_type
@@ -159,14 +168,18 @@ async def main() -> int:
             },
             (time.perf_counter() - t0) * 1000,
         )
-        then(scen, "filtered search returns ≥1 hit", len(s2_hits) >= 1,
-             f"hit_count={len(s2_hits)}")
+        then(scen, "filtered search returns ≥1 hit", len(s2_hits) >= 1, f"hit_count={len(s2_hits)}")
         leaks = [
-            h for h in s2_hits
+            h
+            for h in s2_hits
             if h.knowledge_type is not None and h.knowledge_type != KnowledgeType.COMPONENT
         ]
-        then(scen, "no failure-typed leaks", len(leaks) == 0,
-             f"leaked hits={[(h.source_path, str(h.knowledge_type)) for h in leaks]}")
+        then(
+            scen,
+            "no failure-typed leaks",
+            len(leaks) == 0,
+            f"leaked hits={[(h.source_path, str(h.knowledge_type)) for h in leaks]}",
+        )
 
         # --------------------------------------------------------------
         # Scenario 3: empty search produces deterministic empty list
@@ -185,15 +198,16 @@ async def main() -> int:
             },
             (time.perf_counter() - t0) * 1000,
         )
-        then(scen, "response is a list", isinstance(s3_hits, list),
-             f"type={type(s3_hits).__name__}")
-        deterministic_no_match = (
-            len(s3_hits) == 0
-            or all(h.similarity_score < 0.5 for h in s3_hits)
+        then(
+            scen, "response is a list", isinstance(s3_hits, list), f"type={type(s3_hits).__name__}"
         )
-        then(scen, "either empty or all hits below 0.5 confidence",
-             deterministic_no_match,
-             f"scores={[round(h.similarity_score, 3) for h in s3_hits]}")
+        deterministic_no_match = len(s3_hits) == 0 or all(h.similarity_score < 0.5 for h in s3_hits)
+        then(
+            scen,
+            "either empty or all hits below 0.5 confidence",
+            deterministic_no_match,
+            f"scores={[round(h.similarity_score, 3) for h in s3_hits]}",
+        )
 
         # --------------------------------------------------------------
         # Scenario 4: search respects top_k cap
@@ -211,8 +225,7 @@ async def main() -> int:
             },
             (time.perf_counter() - t0) * 1000,
         )
-        then(scen, "hit_count <= top_k", len(s4_hits) <= 2,
-             f"hit_count={len(s4_hits)}")
+        then(scen, "hit_count <= top_k", len(s4_hits) <= 2, f"hit_count={len(s4_hits)}")
 
         # --------------------------------------------------------------
         # Scenario 5: knowledge.search response carries citation fields
@@ -244,18 +257,24 @@ async def main() -> int:
             },
             (time.perf_counter() - t0) * 1000,
         )
-        then(scen, "exactly 1 hit", len(s5_hits) == 1,
-             f"hit_count={len(s5_hits)}")
+        then(scen, "exactly 1 hit", len(s5_hits) == 1, f"hit_count={len(s5_hits)}")
         if s5_hits:
             h = s5_hits[0]
-            then(scen, "non-empty source_path", bool(h.source_path),
-                 f"source_path={h.source_path!r}")
-            then(scen, "chunk_index field present (not None)",
-                 h.chunk_index is not None,
-                 f"chunk_index={h.chunk_index!r}")
-            then(scen, "total_chunks field present (not None)",
-                 h.total_chunks is not None,
-                 f"total_chunks={h.total_chunks!r}")
+            then(
+                scen, "non-empty source_path", bool(h.source_path), f"source_path={h.source_path!r}"
+            )
+            then(
+                scen,
+                "chunk_index field present (not None)",
+                h.chunk_index is not None,
+                f"chunk_index={h.chunk_index!r}",
+            )
+            then(
+                scen,
+                "total_chunks field present (not None)",
+                h.total_chunks is not None,
+                f"total_chunks={h.total_chunks!r}",
+            )
 
         # --------------------------------------------------------------
         # Scenario 6: knowledge.ingest rejects empty content cleanly
@@ -297,8 +316,12 @@ async def main() -> int:
         # PASS conditions: either explicit failure status OR raised
         # exception. FAIL: silent success with chunks_indexed=0.
         passed = s6_classification == "raised-exception"
-        then(scen, "rejects empty content (raise OR failure status)", passed,
-             f"classification={s6_classification}; response={s6_response}")
+        then(
+            scen,
+            "rejects empty content (raise OR failure status)",
+            passed,
+            f"classification={s6_classification}; response={s6_response}",
+        )
 
         # --------------------------------------------------------------
         # Scenario 7: deduplication on identical re-ingest
@@ -335,8 +358,12 @@ async def main() -> int:
             (time.perf_counter() - t0) * 1000,
         )
         s7_matches = [h for h in s7_hits if h.source_path == s7_path]
-        then(scen, "exactly one hit (deduplicated)", len(s7_matches) == 1,
-             f"matching hit_count={len(s7_matches)}")
+        then(
+            scen,
+            "exactly one hit (deduplicated)",
+            len(s7_matches) == 1,
+            f"matching hit_count={len(s7_matches)}",
+        )
 
         # --------------------------------------------------------------
         # Scenario 8: forge ingest equivalent — directory walk
@@ -367,9 +394,12 @@ async def main() -> int:
             (time.perf_counter() - t0) * 1000,
         )
         s8_paths = {h.source_path for h in s8_hits}
-        then(scen, "both walker source_paths in top 5",
-             {s8a_path, s8b_path}.issubset(s8_paths),
-             f"hit source_paths={sorted(p for p in s8_paths if p)}")
+        then(
+            scen,
+            "both walker source_paths in top 5",
+            {s8a_path, s8b_path}.issubset(s8_paths),
+            f"hit source_paths={sorted(p for p in s8_paths if p)}",
+        )
 
     finally:
         await svc.close()
