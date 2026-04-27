@@ -115,7 +115,7 @@ class TestHttpMode:
             '"description":"","capability":"math"}]}}'
         )
         transport = _stub_transport(list_payload)
-        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url: transport)
+        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url, **_kw: transport)
         bridge = await create_mcp_bridge(fallback=InMemoryMcpBridge())
         assert isinstance(bridge, McpClientBridge)
         assert await bridge.is_available("alpha.add")
@@ -129,7 +129,7 @@ class TestHttpMode:
         transport = MagicMock()
         transport.connect = AsyncMock(side_effect=ConnectionRefusedError())
         transport.disconnect = AsyncMock()
-        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url: transport)
+        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url, **_kw: transport)
         fb = InMemoryMcpBridge()
         bridge = await create_mcp_bridge(fallback=fb)
         assert bridge is fb
@@ -144,6 +144,6 @@ class TestHttpMode:
         transport = MagicMock()
         transport.connect = AsyncMock(side_effect=ConnectionRefusedError())
         transport.disconnect = AsyncMock()
-        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url: transport)
+        monkeypatch.setattr("skill_registry.bridge_factory.HttpTransport", lambda url, **_kw: transport)
         with pytest.raises(RuntimeError, match="failed to connect"):
             await create_mcp_bridge(fallback=InMemoryMcpBridge())
