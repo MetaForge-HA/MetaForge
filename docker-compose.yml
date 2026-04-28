@@ -389,10 +389,13 @@ services:
       - PORT=9621
       - WORKING_DIR=/app/data/rag_storage
       - INPUT_DIR=/app/data/inputs
-      # Storage backends — share the same pgvector instance the gateway uses.
+      # Storage backends — share the gateway's pgvector instance for
+      # KV/vector/doc-status, and use the in-process NetworkX backend
+      # for the knowledge graph (PGGraphStorage requires the Apache AGE
+      # extension, which isn't shipped with the pgvector image we use).
       - LIGHTRAG_KV_STORAGE=PGKVStorage
       - LIGHTRAG_VECTOR_STORAGE=PGVectorStorage
-      - LIGHTRAG_GRAPH_STORAGE=PGGraphStorage
+      - LIGHTRAG_GRAPH_STORAGE=NetworkXStorage
       - LIGHTRAG_DOC_STATUS_STORAGE=PGDocStatusStorage
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
