@@ -55,8 +55,7 @@ class KnowledgeEntry(BaseModel):
     source_path: str | None = Field(
         default=None,
         description=(
-            "URI/path the entry was ingested from — "
-            "required for citable retrieval (MET-320)"
+            "URI/path the entry was ingested from — required for citable retrieval (MET-320)"
         ),
     )
     chunk_index: int | None = Field(
