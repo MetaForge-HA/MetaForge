@@ -11,6 +11,7 @@
 #   Neo4j:        http://localhost:7474  (bolt://localhost:7687)
 #   Temporal UI:  http://localhost:8080
 #   Kafka:        localhost:9092
+#   LightRAG UI:  http://localhost:9621  (profile: lightrag)
 #   Grafana:      http://localhost:3001  (profile: observability)
 
 services:
@@ -350,6 +351,116 @@ services:
       - metaforge
     restart: unless-stopped
 
+  # ── LightRAG Web UI (opt-in via --profile lightrag) ──────────────
+  # ADR-010 / MET-392 — engineer dogfood UI for the L1 knowledge
+  # service. Standalone React + Sigma.js canvas served by LightRAG's
+  # built-in FastAPI server. Backed by the same pgvector + Postgres
+  # the gateway uses (in a separate workspace), so engineers see the
+  # same backend without polluting production knowledge data.
+  #
+  # The published ``ghcr.io/hkuds/lightrag`` image only ships the
+  # ``ollama`` and ``gemini`` bindings. We default to ollama with
+  # ``nomic-embed-text`` (768-dim) — no API key needed — and run an
+  # ollama sidecar in the same profile. To use Gemini instead, set
+  # ``LIGHTRAG_*_BINDING=gemini`` and supply ``LIGHTRAG_*_API_KEY``.
+  lightrag-ui-ollama:
+    image: ollama/ollama:latest
+    profiles: ["lightrag"]
+    volumes:
+      - lightrag-ui-ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - metaforge
+    restart: unless-stopped
+
+  lightrag-ui:
+    image: ghcr.io/hkuds/lightrag:latest
+    profiles: ["lightrag"]
+    ports:
+      - "${LIGHTRAG_UI_PORT:-9621}:9621"
+    environment:
+      # LightRAG server config
+      - HOST=0.0.0.0
+      - PORT=9621
+      - WORKING_DIR=/app/data/rag_storage
+      - INPUT_DIR=/app/data/inputs
+      # Storage backends — share the same pgvector instance the gateway uses.
+      - LIGHTRAG_KV_STORAGE=PGKVStorage
+      - LIGHTRAG_VECTOR_STORAGE=PGVectorStorage
+      - LIGHTRAG_GRAPH_STORAGE=PGGraphStorage
+      - LIGHTRAG_DOC_STATUS_STORAGE=PGDocStatusStorage
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-metaforge}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-metaforge}
+      - POSTGRES_DATABASE=${POSTGRES_DB:-metaforge}
+      - POSTGRES_WORKSPACE=lightrag_ui
+      # Embeddings — ollama default. The bootstrap helper below
+      # pulls ``nomic-embed-text`` automatically on first start.
+      - EMBEDDING_BINDING=${LIGHTRAG_EMBEDDING_BINDING:-ollama}
+      - EMBEDDING_MODEL=${LIGHTRAG_EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIM=${LIGHTRAG_EMBEDDING_DIM:-768}
+      - EMBEDDING_BINDING_HOST=${LIGHTRAG_EMBEDDING_HOST:-http://lightrag-ui-ollama:11434}
+      - EMBEDDING_BINDING_API_KEY=${LIGHTRAG_EMBEDDING_API_KEY:-}
+      # LLM — ollama default. The bootstrap helper below pulls
+      # ``llama3.2:3b`` (~2 GB) on first start. Set
+      # ``LIGHTRAG_LLM_BINDING=gemini`` + ``LIGHTRAG_LLM_API_KEY=...``
+      # to use Gemini instead. Leave LLM_BINDING_HOST blank when
+      # using gemini.
+      - LLM_BINDING=${LIGHTRAG_LLM_BINDING:-ollama}
+      - LLM_MODEL=${LIGHTRAG_LLM_MODEL:-llama3.2:3b}
+      - LLM_BINDING_API_KEY=${LIGHTRAG_LLM_API_KEY:-}
+      - LLM_BINDING_HOST=${LIGHTRAG_LLM_HOST:-http://lightrag-ui-ollama:11434}
+      # Auth — leave LIGHTRAG_API_KEY unset for local dev (no token
+      # required). Set in .env to lock down the UI.
+      - LIGHTRAG_API_KEY=${LIGHTRAG_API_KEY:-}
+    volumes:
+      - lightrag-ui-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lightrag-ui-ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9621/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - metaforge
+    restart: unless-stopped
+
+  # One-shot helper that pulls the default ollama models so first
+  # start of lightrag-ui doesn't fail with "model not found". Runs to
+  # completion and exits — leave it in the compose file so re-pulls
+  # are idempotent (ollama skips already-present models).
+  lightrag-ui-ollama-bootstrap:
+    image: ollama/ollama:latest
+    profiles: ["lightrag"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        export OLLAMA_HOST=http://lightrag-ui-ollama:11434
+        # Wait for the ollama server to come online
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        # Pull the embedding + chat models. Both are no-ops if already
+        # present.
+        ollama pull "${LIGHTRAG_EMBEDDING_MODEL:-nomic-embed-text}"
+        ollama pull "${LIGHTRAG_LLM_MODEL:-llama3.2:3b}"
+        echo "lightrag-ui-ollama-bootstrap done"
+    depends_on:
+      lightrag-ui-ollama:
+        condition: service_healthy
+    networks:
+      - metaforge
+    restart: "no"
+
   # ── Observability (opt-in via --profile) ─────────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -461,6 +572,8 @@ volumes:
   tempo-data:
   loki-data:
   alertmanager-data:
+  lightrag-ui-data:
+  lightrag-ui-ollama-data:
 
 networks:
   metaforge:
