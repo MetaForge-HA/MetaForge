@@ -1,6 +1,15 @@
 """MCP core -- Model Context Protocol client layer for MetaForge."""
 
 from mcp_core.client import InMemoryTransport, McpClient, Transport
+from mcp_core.context import (
+    McpCallContext,
+    context_from_env,
+    context_from_headers,
+    current_context,
+    reset_context,
+    set_context,
+    with_context,
+)
 from mcp_core.protocol import (
     McpError,
     ToolExecutionError,
@@ -25,6 +34,7 @@ __all__ = [
     "JsonRpcErrorResponse",
     "JsonRpcRequest",
     "JsonRpcSuccessResponse",
+    "McpCallContext",
     "McpClient",
     "McpError",
     "ToolCallRequest",
@@ -34,4 +44,10 @@ __all__ = [
     "ToolTimeoutError",
     "ToolUnavailableError",
     "Transport",
+    "context_from_env",
+    "context_from_headers",
+    "current_context",
+    "reset_context",
+    "set_context",
+    "with_context",
 ]
