@@ -102,9 +102,7 @@ class TestResourceSchemas:
             adapter_id="twin",
         )
         ResourceListResult(resources=[manifest])
-        ResourceReadResult(
-            contents=[ResourceContent(uri="metaforge://twin/node/abc", text="x")]
-        )
+        ResourceReadResult(contents=[ResourceContent(uri="metaforge://twin/node/abc", text="x")])
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +179,7 @@ class TestResourcesList:
     async def test_adapter_filter(self) -> None:
         srv = _SampleServer()
         # Filter that doesn't match the registration's adapter_id => empty.
-        raw = await srv.handle_request(
-            _request("resources/list", {"adapter_id": "other"})
-        )
+        raw = await srv.handle_request(_request("resources/list", {"adapter_id": "other"}))
         body = json.loads(raw)
         assert body["result"]["resources"] == []
 
@@ -203,9 +199,7 @@ class TestResourcesRead:
 
     async def test_unknown_uri_returns_resource_not_found(self) -> None:
         srv = _SampleServer()
-        raw = await srv.handle_request(
-            _request("resources/read", {"uri": "metaforge://other/x"})
-        )
+        raw = await srv.handle_request(_request("resources/read", {"uri": "metaforge://other/x"}))
         body = json.loads(raw)
         assert "error" in body
         assert body["error"]["code"] == -32004  # RESOURCE_NOT_FOUND

@@ -62,9 +62,7 @@ def parse_resource_uri(
         raise ResourceUriError(f"Malformed resource URI: {uri!r}")
     scheme = match.group("scheme").lower()
     if scheme not in allowed_schemes:
-        raise ResourceUriError(
-            f"Unknown URI scheme {scheme!r}; expected one of {allowed_schemes}"
-        )
+        raise ResourceUriError(f"Unknown URI scheme {scheme!r}; expected one of {allowed_schemes}")
     adapter = match.group("adapter")
     path = match.group("path")
     if not adapter or not path:
