@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 
+from observability.tracing import get_tracer
 from tool_registry.mcp_server.handlers import (
     ToolHandler,
     ToolHandlerError,
@@ -24,6 +25,7 @@ from tool_registry.mcp_server.handlers import (
 )
 
 logger = structlog.get_logger()
+tracer = get_tracer("tool_registry.mcp_server.server")
 
 # JSON-RPC error codes
 _INVALID_REQUEST = -32600
@@ -68,7 +70,13 @@ class McpToolServer:
         return list(self._tools.keys())
 
     async def handle_request(self, raw_message: str) -> str:
-        """Parse JSON-RPC request, dispatch to handler, return JSON-RPC response."""
+        """Parse JSON-RPC request, dispatch to handler, return JSON-RPC response.
+
+        MET-386: every request is wrapped in an ``mcp.tool.call`` span
+        so harness latency questions ("this took 4s — where?") have a
+        trace tree to read. Per-tool execution adds an inner
+        ``mcp.tool.<tool_id>`` span via ``handle_tool_call``.
+        """
         # Parse the request
         try:
             data: dict[str, Any] = json.loads(raw_message)
@@ -84,44 +92,78 @@ class McpToolServer:
             response = make_error(request_id, _INVALID_REQUEST, "Not a valid JSON-RPC 2.0 message")
             return json.dumps(response)
 
-        # Route to handler
-        try:
-            if method == "tool/list":
-                result = await handle_tool_list(self._tools, params)
-            elif method == "tool/call":
-                result = await handle_tool_call(self._tools, params)
-            elif method == "health/check":
-                result = await handle_health_check(
-                    self.adapter_id, self.version, self._tools, self._start_time
-                )
-            else:
-                response = make_error(request_id, _METHOD_NOT_FOUND, f"Unknown method: {method}")
-                return json.dumps(response)
-        except ToolNotFoundError as exc:
-            response = make_error(request_id, _METHOD_NOT_FOUND, str(exc), {"tool_id": exc.tool_id})
-            return json.dumps(response)
-        except ToolHandlerError as exc:
-            logger.error(
-                "Tool handler failed",
-                tool_id=exc.tool_id,
-                details=exc.details,
-                duration_ms=round(exc.duration_ms, 2),
-            )
-            response = make_error(
-                request_id,
-                _TOOL_EXECUTION_ERROR,
-                "Tool execution failed",
-                {
-                    "error_type": "TOOL_EXECUTION_ERROR",
-                    "tool_id": exc.tool_id,
-                    "details": exc.details,
-                    "duration_ms": exc.duration_ms,
-                },
-            )
-            return json.dumps(response)
+        # MET-386: open the root MCP span. Attributes follow the
+        # ``mcp.*`` namespace convention so backend filters in Tempo /
+        # Jaeger are easy. Pull caller identity from MET-387's call
+        # context when available.
+        from mcp_core.context import current_context
 
-        response = make_success(request_id, result)
-        return json.dumps(response)
+        ctx = current_context()
+        with tracer.start_as_current_span("mcp.tool.call") as span:
+            span.set_attribute("mcp.method", method)
+            span.set_attribute("mcp.adapter_id", self.adapter_id)
+            span.set_attribute("mcp.adapter_version", self.version)
+            span.set_attribute("mcp.actor_id", ctx.actor_id)
+            span.set_attribute("mcp.session_id", str(ctx.session_id))
+            if ctx.project_id is not None:
+                span.set_attribute("mcp.project_id", str(ctx.project_id))
+            tool_id = params.get("tool_id") if method == "tool/call" else None
+            if tool_id:
+                span.set_attribute("mcp.tool_id", tool_id)
+            # Best-effort body-size attribute for "is this query big?" debug.
+            span.set_attribute("mcp.request_size_bytes", len(raw_message))
+
+            try:
+                if method == "tool/list":
+                    result = await handle_tool_list(self._tools, params)
+                elif method == "tool/call":
+                    result = await handle_tool_call(self._tools, params)
+                elif method == "health/check":
+                    result = await handle_health_check(
+                        self.adapter_id, self.version, self._tools, self._start_time
+                    )
+                else:
+                    span.set_attribute("mcp.status", "method_not_found")
+                    response = make_error(
+                        request_id, _METHOD_NOT_FOUND, f"Unknown method: {method}"
+                    )
+                    return json.dumps(response)
+            except ToolNotFoundError as exc:
+                span.set_attribute("mcp.status", "tool_not_found")
+                span.set_attribute("mcp.error.tool_id", exc.tool_id)
+                span.record_exception(exc)
+                response = make_error(
+                    request_id, _METHOD_NOT_FOUND, str(exc), {"tool_id": exc.tool_id}
+                )
+                return json.dumps(response)
+            except ToolHandlerError as exc:
+                span.set_attribute("mcp.status", "tool_execution_error")
+                span.set_attribute("mcp.error.tool_id", exc.tool_id)
+                span.set_attribute("mcp.duration_ms", round(exc.duration_ms, 2))
+                span.record_exception(exc)
+                logger.error(
+                    "Tool handler failed",
+                    tool_id=exc.tool_id,
+                    details=exc.details,
+                    duration_ms=round(exc.duration_ms, 2),
+                )
+                response = make_error(
+                    request_id,
+                    _TOOL_EXECUTION_ERROR,
+                    "Tool execution failed",
+                    {
+                        "error_type": "TOOL_EXECUTION_ERROR",
+                        "tool_id": exc.tool_id,
+                        "details": exc.details,
+                        "duration_ms": exc.duration_ms,
+                    },
+                )
+                return json.dumps(response)
+
+            span.set_attribute("mcp.status", "success")
+            response_text = json.dumps(make_success(request_id, result))
+            span.set_attribute("mcp.response_size_bytes", len(response_text))
+            return response_text
 
     async def start_stdio(self) -> None:
         """Start the server in stdio mode (reads stdin, writes responses to stdout)."""

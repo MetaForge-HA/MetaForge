@@ -84,7 +84,17 @@ async def handle_tool_call(
     tools: dict[str, ToolRegistration],
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    """Handle tool/call request -- dispatch to the registered handler."""
+    """Handle tool/call request -- dispatch to the registered handler.
+
+    MET-386: opens a per-tool ``mcp.tool.<tool_id>`` span as a child of
+    the enclosing ``mcp.tool.call`` root, so trace trees show
+    per-handler latency. Backend spans (Neo4j, pgvector, ...) inherit
+    from this one when adapters use their own tracers.
+    """
+    from observability.tracing import get_tracer
+
+    tracer = get_tracer("tool_registry.mcp_server.handlers")
+
     tool_id = params.get("tool_id", "")
     arguments = params.get("arguments", {})
 
@@ -92,22 +102,37 @@ async def handle_tool_call(
     if registration is None:
         raise ToolNotFoundError(tool_id)
 
-    start = time.monotonic()
-    try:
-        result_data = await registration.handler(arguments)
-    except ToolNotFoundError:
-        raise
-    except Exception as exc:
-        elapsed = (time.monotonic() - start) * 1000
-        raise ToolHandlerError(tool_id, str(exc), elapsed) from exc
+    span_name = f"mcp.tool.{tool_id}" if tool_id else "mcp.tool.unknown"
+    with tracer.start_as_current_span(span_name) as span:
+        span.set_attribute("mcp.tool_id", tool_id)
+        span.set_attribute("mcp.tool.adapter_id", registration.manifest.adapter_id)
+        span.set_attribute("mcp.tool.capability", registration.manifest.capability)
+        # Best-effort: argument count is a useful "is this a big call?"
+        # signal without serialising potentially-huge payloads.
+        if isinstance(arguments, dict):
+            span.set_attribute("mcp.tool.argument_count", len(arguments))
 
-    elapsed = (time.monotonic() - start) * 1000
-    return {
-        "tool_id": tool_id,
-        "status": "success",
-        "data": result_data,
-        "duration_ms": round(elapsed, 2),
-    }
+        start = time.monotonic()
+        try:
+            result_data = await registration.handler(arguments)
+        except ToolNotFoundError:
+            raise
+        except Exception as exc:
+            elapsed = (time.monotonic() - start) * 1000
+            span.set_attribute("mcp.tool.duration_ms", round(elapsed, 2))
+            span.record_exception(exc)
+            raise ToolHandlerError(tool_id, str(exc), elapsed) from exc
+
+        elapsed = (time.monotonic() - start) * 1000
+        span.set_attribute("mcp.tool.duration_ms", round(elapsed, 2))
+        if isinstance(result_data, dict):
+            span.set_attribute("mcp.tool.result_keys", len(result_data))
+        return {
+            "tool_id": tool_id,
+            "status": "success",
+            "data": result_data,
+            "duration_ms": round(elapsed, 2),
+        }
 
 
 async def handle_health_check(
