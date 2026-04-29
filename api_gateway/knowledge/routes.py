@@ -340,6 +340,7 @@ async def ingest_knowledge(
                 entry_id=str(entry_id),
                 embedded=result.chunks_indexed > 0,
                 chunks=result.chunks_indexed,
+                source_path=source_path,
                 backend="knowledge_service",
             )
             return IngestResponse(entryId=entry_id, embedded=result.chunks_indexed > 0)
@@ -373,6 +374,7 @@ async def ingest_knowledge(
             "knowledge_ingested",
             entry_id=str(stored.id),
             embedded=embedded,
+            source_path=body.source_path,
             backend="knowledge_store",
         )
         return IngestResponse(entryId=stored.id, embedded=embedded)
