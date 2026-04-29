@@ -45,9 +45,15 @@ async def _start_http(server, port: int) -> None:
     """Start an HTTP server that forwards JSON-RPC to the MCP server."""
     from aiohttp import web
 
+    from mcp_core.context import context_from_headers, with_context
+
     async def handle_mcp(request: web.Request) -> web.Response:
         body = await request.text()
-        response = await server.handle_request(body)
+        # MET-387: scope every /mcp call to the harness's context so
+        # downstream handlers see project / actor via ``current_context()``.
+        ctx = context_from_headers(dict(request.headers))
+        with with_context(ctx):
+            response = await server.handle_request(body)
         return web.Response(text=response, content_type="application/json")
 
     async def handle_health(request: web.Request) -> web.Response:

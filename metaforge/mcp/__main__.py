@@ -149,6 +149,13 @@ async def run_stdio(server: UnifiedMcpServer) -> None:
         sys.stdout.flush()
         return
 
+    # MET-387: stdio installs the call context from env vars at boot —
+    # one stdio process = one harness session, so a single context
+    # applies to every subsequent request on this stream.
+    from mcp_core.context import context_from_env, set_context
+
+    set_context(context_from_env())
+
     logger.info(
         "mcp_stdio_ready",
         adapter_count=len(server.adapters),
@@ -248,7 +255,14 @@ def build_http_app(
     ) -> JSONResponse:
         _check_auth(authorization)
         raw_body = await request.body()
-        response = await server.handle_request(raw_body.decode("utf-8"))
+        # MET-387: install per-request McpCallContext from headers so
+        # downstream handlers see the project / actor / session via
+        # ``current_context()``.
+        from mcp_core.context import context_from_headers, with_context
+
+        ctx = context_from_headers(dict(request.headers))
+        with with_context(ctx):
+            response = await server.handle_request(raw_body.decode("utf-8"))
         return JSONResponse(json.loads(response))
 
     if enable_sse:
@@ -267,12 +281,19 @@ def build_http_app(
             """
             _check_auth(authorization)
             queries = request.query_params.getlist("request")
+            # MET-387: install per-stream context from headers; every
+            # queued request runs under the same ctx (one SSE connection
+            # = one harness session).
+            from mcp_core.context import context_from_headers, with_context
+
+            ctx = context_from_headers(dict(request.headers))
 
             async def _events() -> AsyncIterator[bytes]:
-                for raw in queries:
-                    response = await server.handle_request(raw)
-                    yield f"event: response\ndata: {response}\n\n".encode()
-                yield b"event: done\ndata: \n\n"
+                with with_context(ctx):
+                    for raw in queries:
+                        response = await server.handle_request(raw)
+                        yield f"event: response\ndata: {response}\n\n".encode()
+                    yield b"event: done\ndata: \n\n"
 
             return StreamingResponse(
                 _events(),
