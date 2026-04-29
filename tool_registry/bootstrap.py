@@ -160,6 +160,7 @@ async def bootstrap_tool_registry(
     registry: ToolRegistry | None = None,
     adapter_ids: list[str] | None = None,
     knowledge_service: Any = None,
+    constraint_engine: Any = None,
 ) -> ToolRegistry:
     """Bootstrap all enabled tool adapters into a ToolRegistry.
 
@@ -171,6 +172,10 @@ async def bootstrap_tool_registry(
             supplied, the ``knowledge`` MCP adapter (knowledge.search +
             knowledge.ingest) is registered. When ``None``, the adapter
             is skipped — it has no useful default backend (MET-335).
+        constraint_engine: Optional ``ConstraintEngine`` instance.
+            When supplied, the ``constraint`` MCP adapter (MET-383) is
+            registered. When ``None``, skipped — same pattern as
+            knowledge_service since both are runtime-injected.
 
     Returns:
         The populated ToolRegistry.
@@ -267,6 +272,35 @@ async def bootstrap_tool_registry(
                 reason=(
                     "no knowledge_service supplied"
                     if knowledge_service is None
+                    else "disabled via config"
+                ),
+            )
+
+        # ----- Constraint MCP adapter (MET-383) -----
+        # Same pattern as knowledge: depends on a runtime-injected
+        # ConstraintEngine instance, so registered out-of-band.
+        if constraint_engine is not None and _is_adapter_enabled("constraint"):
+            try:
+                from tool_registry.tools.constraint.adapter import ConstraintServer
+
+                server = ConstraintServer(engine=constraint_engine)
+                await registry.register_adapter(server)
+                registered.append("constraint")
+                logger.info(
+                    "constraint_mcp_adapter_registered",
+                    engine=type(constraint_engine).__name__,
+                )
+            except Exception as exc:
+                logger.error("constraint_mcp_adapter_failed", error=str(exc))
+                span.record_exception(exc)
+                failed.append("constraint")
+        else:
+            skipped.append("constraint")
+            logger.info(
+                "constraint_mcp_adapter_skipped",
+                reason=(
+                    "no constraint_engine supplied"
+                    if constraint_engine is None
                     else "disabled via config"
                 ),
             )
